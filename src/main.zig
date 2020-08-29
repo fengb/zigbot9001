@@ -38,9 +38,12 @@ fn Buffer(comptime max_len: usize) type {
 
 const Context = struct {
     allocator: *std.mem.Allocator,
-    auth_token: []const u8,
+    discord_auth_token: []const u8,
     github_auth_token: ?[]const u8,
     prepared_anal: analBuddy.PrepareResult,
+    discord_ssl_tunnel: *request.SslTunnel,
+    discord_ssl_tunnel_gg: *request.SslTunnel,
+    github_ssl_tunnel: *request.SslTunnel,
 
     start_time: i64,
     connect_time: i64,
@@ -50,19 +53,30 @@ const Context = struct {
 
     const AskData = struct { ask: Buffer(0x100), channel_id: u64 };
 
-    pub fn init(allocator: *std.mem.Allocator, auth_token: []const u8, ziglib: []const u8, github_auth_token: ?[]const u8) !*Context {
-        const result = try allocator.create(Context);
-        errdefer allocator.destroy(result);
+    pub fn init(args: struct {
+        allocator: *std.mem.Allocator,
+        discord_auth: []const u8,
+        github_auth: ?[]const u8,
+        ziglib: []const u8,
+        discord_ssl_tunnel: *request.SslTunnel,
+        discord_ssl_tunnel_gg: *request.SslTunnel,
+        github_ssl_tunnel: *request.SslTunnel,
+    }) !*Context {
+        const result = try args.allocator.create(Context);
+        errdefer args.allocator.destroy(result);
 
-        result.allocator = allocator;
-        result.auth_token = auth_token;
-        result.github_auth_token = github_auth_token;
-        result.prepared_anal = try analBuddy.prepare(allocator, ziglib);
+        result.allocator = args.allocator;
+        result.discord_auth_token = args.discord_auth;
+        result.github_auth_token = args.github_auth;
+        result.prepared_anal = try analBuddy.prepare(args.allocator, args.ziglib);
         errdefer analBuddy.dispose(&result.prepared_anal);
 
         result.start_time = std.time.milliTimestamp();
 
         result.ask_mailbox = util.Mailbox(AskData).init();
+        result.discord_ssl_tunnel = args.discord_ssl_tunnel;
+        result.discord_ssl_tunnel_gg = args.discord_ssl_tunnel_gg;
+        result.github_ssl_tunnel = args.github_ssl_tunnel;
         result.ask_thread = try std.Thread.spawn(result, askHandler);
 
         return result;
@@ -197,7 +211,7 @@ const Context = struct {
         var path: [0x100]u8 = undefined;
         var req = try request.Https.init(.{
             .allocator = self.allocator,
-            .pem = @embedFile("../discord-com-chain.pem"),
+            .ssl_tunnel = self.discord_ssl_tunnel,
             .host = "discord.com",
             .method = "POST",
             .path = try std.fmt.bufPrint(&path, "/api/v6/channels/{}/messages", .{args.channel_id}),
@@ -206,7 +220,7 @@ const Context = struct {
 
         try req.client.writeHeaderValue("Accept", "application/json");
         try req.client.writeHeaderValue("Content-Type", "application/json");
-        try req.client.writeHeaderValue("Authorization", self.auth_token);
+        try req.client.writeHeaderValue("Authorization", self.discord_auth_token);
 
         try req.printSend(
             \\{{
@@ -244,7 +258,7 @@ const Context = struct {
         var path: [0x100]u8 = undefined;
         var req = try request.Https.init(.{
             .allocator = self.allocator,
-            .pem = @embedFile("../github-com-chain.pem"),
+            .ssl_tunnel = self.github_ssl_tunnel,
             .host = "api.github.com",
             .method = "GET",
             .path = try std.fmt.bufPrint(&path, "/repos/ziglang/zig/issues/{}", .{issue}),
@@ -292,22 +306,41 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
     var auth_buf: [0x100]u8 = undefined;
+    const discord_auth = try std.fmt.bufPrint(&auth_buf, "Bot {}", .{std.os.getenv("DISCORD_AUTH") orelse return error.AuthNotFound});
     var github_auth_buf: [0x100]u8 = undefined;
-    const context = try Context.init(
+    const github_auth = if (std.os.getenv("GITHUB_AUTH")) |github_auth|
+        try std.fmt.bufPrint(&github_auth_buf, "token {}", .{github_auth})
+    else
+        null;
+
+    const discord_ssl_tunnel = try request.SslTunnel.init(
         &gpa.allocator,
-        try std.fmt.bufPrint(&auth_buf, "Bot {}", .{std.os.getenv("DISCORD_AUTH") orelse return error.AuthNotFound}),
-        std.os.getenv("ZIGLIB") orelse return error.ZiglibNotFound,
-        if (std.os.getenv("GITHUB_AUTH")) |github_auth|
-            try std.fmt.bufPrint(&github_auth_buf, "token {}", .{github_auth})
-        else
-            null,
+        @embedFile("../discord-com-chain.pem"),
     );
+    errdefer discord_ssl_tunnel.deinit();
+    const discord_ssl_tunnel_gg = try request.SslTunnel.init(
+        &gpa.allocator,
+        @embedFile("../discord-gg-chain.pem"),
+    );
+    errdefer discord_ssl_tunnel_gg.deinit();
+    const github_ssl_tunnel = try request.SslTunnel.init(
+        &gpa.allocator,
+        @embedFile("../github-com-chain.pem"),
+    );
+    errdefer github_ssl_tunnel.deinit();
+
+    const context = try Context.init(.{
+        .allocator = &gpa.allocator,
+        .discord_auth = discord_auth,
+        .github_auth = github_auth,
+        .ziglib = std.os.getenv("ZIGLIB") orelse return error.ZiglibNotFound,
+        .discord_ssl_tunnel = discord_ssl_tunnel,
+        .discord_ssl_tunnel_gg = discord_ssl_tunnel_gg,
+        .github_ssl_tunnel = github_ssl_tunnel,
+    });
 
     while (true) {
-        var discord_ws = try DiscordWs.init(
-            context.allocator,
-            context.auth_token,
-        );
+        var discord_ws = try DiscordWs.init(context);
         defer discord_ws.deinit();
 
         context.connect_time = std.time.milliTimestamp();
@@ -430,19 +463,20 @@ const DiscordWs = struct {
         heartbeat_ack = 11,
     };
 
-    pub fn init(allocator: *std.mem.Allocator, auth_token: []const u8) !*DiscordWs {
+    pub fn init(context: *Context) !*DiscordWs {
+        const allocator = context.allocator;
         const result = try allocator.create(DiscordWs);
         errdefer allocator.destroy(result);
         result.allocator = allocator;
 
         result.write_mutex = .{};
 
-        result.ssl_tunnel = try request.SslTunnel.init(.{
+        result.ssl_tunnel = context.discord_ssl_tunnel_gg;
+
+        try result.ssl_tunnel.connect(.{
             .allocator = allocator,
-            .pem = @embedFile("../discord-gg-chain.pem"),
             .host = "gateway.discord.gg",
         });
-        errdefer result.ssl_tunnel.deinit();
 
         result.client_buffer = try allocator.alloc(u8, 0x1000);
         errdefer allocator.free(result.client_buffer);
@@ -512,7 +546,7 @@ const DiscordWs = struct {
             \\ }}
         ,
             .{
-                format.jsonString(auth_token),
+                format.jsonString(context.discord_auth_token),
                 @tagName(std.Target.current.os.tag),
                 agent,
             },
