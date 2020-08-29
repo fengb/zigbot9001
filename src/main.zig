@@ -562,7 +562,6 @@ const DiscordWs = struct {
     pub fn deinit(self: *DiscordWs) void {
         if (!self.is_dying) {
             self.is_dying = true;
-            self.ssl_tunnel.deinit();
         }
 
         self.heartbeat_thread.wait();
@@ -669,7 +668,6 @@ const DiscordWs = struct {
 
             if (!self.heartbeat_ack) {
                 self.is_dying = true;
-                self.ssl_tunnel.deinit();
                 return;
             }
 
