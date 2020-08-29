@@ -7,8 +7,8 @@ const bot_agent = "zigbot9001/0.0.1";
 pub const SslTunnel = struct {
     allocator: *std.mem.Allocator,
 
-    trust_anchor: ssl.TrustAnchorCollection,
-    x509: ssl.x509.Minimal,
+    trust_anchor: *ssl.TrustAnchorCollection,
+    x509: *ssl.x509.Minimal,
     client: ssl.Client,
 
     tcp_conn: std.fs.File,
@@ -43,11 +43,17 @@ pub const SslTunnel = struct {
 
         result.allocator = allocator;
 
-        result.trust_anchor = ssl.TrustAnchorCollection.init(allocator);
-        errdefer result.trust_anchor.deinit();
+        result.trust_anchor = try allocator.create(ssl.TrustAnchorCollection);
+        result.trust_anchor.* = ssl.TrustAnchorCollection.init(allocator);
+        errdefer {
+            result.trust_anchor.deinit();
+            allocator.destroy(result.trust_anchor);
+        }
         try result.trust_anchor.appendFromPEM(pem);
 
-        result.x509 = ssl.x509.Minimal.init(result.trust_anchor);
+        result.x509 = try allocator.create(ssl.x509.Minimal);
+        result.x509.* = ssl.x509.Minimal.init(result.trust_anchor.*);
+        errdefer allocator.destroy(result.x509);
 
         return result;
     }
@@ -55,7 +61,8 @@ pub const SslTunnel = struct {
     pub fn deinit(self: *SslTunnel) void {
         self.tcp_conn.close();
         self.trust_anchor.deinit();
-
+        self.allocator.destroy(self.trust_anchor);
+        self.allocator.destroy(self.x509);
         self.allocator.destroy(self);
     }
 };
