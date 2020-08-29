@@ -253,9 +253,7 @@ const Context = struct {
 
         try req.client.writeHeaderValue("Accept", "application/json");
         if (self.github_auth_token) |github_auth_token| {
-            var auth_buf: [0x100]u8 = undefined;
-            const token = try std.fmt.bufPrint(&auth_buf, "token {}", .{github_auth_token});
-            try req.client.writeHeaderValue("Authorization", token);
+            try req.client.writeHeaderValue("Authorization", github_auth_token);
         }
         try req.client.writeHeadComplete();
         try req.ssl_tunnel.conn.flush();
@@ -294,11 +292,15 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
     var auth_buf: [0x100]u8 = undefined;
+    var github_auth_buf: [0x100]u8 = undefined;
     const context = try Context.init(
         &gpa.allocator,
         try std.fmt.bufPrint(&auth_buf, "Bot {}", .{std.os.getenv("DISCORD_AUTH") orelse return error.AuthNotFound}),
         std.os.getenv("ZIGLIB") orelse return error.ZiglibNotFound,
-        std.os.getenv("GITHUB_AUTH"),
+        if (std.os.getenv("GITHUB_AUTH")) |github_auth|
+            try std.fmt.bufPrint(&github_auth_buf, "token {}", .{github_auth})
+        else
+            null,
     );
 
     while (true) {
