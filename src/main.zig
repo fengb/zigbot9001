@@ -58,9 +58,9 @@ const Context = struct {
         discord_auth: []const u8,
         github_auth: ?[]const u8,
         ziglib: []const u8,
-        discord_ssl_tunnel: *request.SslTunnel,
-        discord_ssl_tunnel_gg: *request.SslTunnel,
-        github_ssl_tunnel: *request.SslTunnel,
+        discord_pem: []const u8,
+        discord_pem_gg: []const u8,
+        github_pem: []const u8,
     }) !*Context {
         const result = try args.allocator.create(Context);
         errdefer args.allocator.destroy(result);
@@ -74,12 +74,23 @@ const Context = struct {
         result.start_time = std.time.milliTimestamp();
 
         result.ask_mailbox = util.Mailbox(AskData).init();
-        result.discord_ssl_tunnel = args.discord_ssl_tunnel;
-        result.discord_ssl_tunnel_gg = args.discord_ssl_tunnel_gg;
-        result.github_ssl_tunnel = args.github_ssl_tunnel;
+        result.discord_ssl_tunnel = try request.SslTunnel.init(args.allocator, args.discord_pem);
+        errdefer result.discord_ssl_tunnel.deinit();
+        result.discord_ssl_tunnel_gg = try request.SslTunnel.init(args.allocator, args.discord_pem_gg);
+        errdefer result.discord_ssl_tunnel_gg.deinit();
+        result.github_ssl_tunnel = try request.SslTunnel.init(args.allocator, args.github_pem);
+        errdefer result.github_ssl_tunnel.deinit();
         result.ask_thread = try std.Thread.spawn(result, askHandler);
 
         return result;
+    }
+
+    pub fn deinit(self: *Context) void {
+        self.github_ssl_tunnel.deinit();
+        self.discord_ssl_tunnel_gg.deinit();
+        self.discord_ssl_tunnel.deinit();
+        analBuddy.dispose(&self.prepared_anal);
+        self.allocator.destroy(self);
     }
 
     pub fn askHandler(self: *Context) void {
@@ -313,31 +324,16 @@ pub fn main() !void {
     else
         null;
 
-    const discord_ssl_tunnel = try request.SslTunnel.init(
-        &gpa.allocator,
-        @embedFile("../discord-com-chain.pem"),
-    );
-    errdefer discord_ssl_tunnel.deinit();
-    const discord_ssl_tunnel_gg = try request.SslTunnel.init(
-        &gpa.allocator,
-        @embedFile("../discord-gg-chain.pem"),
-    );
-    errdefer discord_ssl_tunnel_gg.deinit();
-    const github_ssl_tunnel = try request.SslTunnel.init(
-        &gpa.allocator,
-        @embedFile("../github-com-chain.pem"),
-    );
-    errdefer github_ssl_tunnel.deinit();
-
     const context = try Context.init(.{
         .allocator = &gpa.allocator,
         .discord_auth = discord_auth,
         .github_auth = github_auth,
         .ziglib = std.os.getenv("ZIGLIB") orelse return error.ZiglibNotFound,
-        .discord_ssl_tunnel = discord_ssl_tunnel,
-        .discord_ssl_tunnel_gg = discord_ssl_tunnel_gg,
-        .github_ssl_tunnel = github_ssl_tunnel,
+        .discord_pem = @embedFile("../discord-com-chain.pem"),
+        .discord_pem_gg = @embedFile("../discord-gg-chain.pem"),
+        .github_pem = @embedFile("../github-com-chain.pem"),
     });
+    defer context.deinit();
 
     while (true) {
         var discord_ws = try DiscordWs.init(context);
