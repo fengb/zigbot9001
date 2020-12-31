@@ -13,3 +13,6 @@
 	path = lib/analysis-buddy
 	url = https://github.com/fengb/analysis-buddy
 	branch = fix-shrink-reference
+[submodule "lib/iguanaTLS"]
+	path = lib/iguanaTLS
+	url = https://github.com/alexnask/iguanaTLS
