@@ -13,3 +13,6 @@
 	path = lib/analysis-buddy
 	url = https://github.com/alexnask/analysis-buddy.git
 	branch = master
+[submodule "lib/iguanaTLS"]
+	path = lib/iguanaTLS
+	url = https://github.com/alexnask/iguanaTLS

@@ -1,7 +1,6 @@
 const std = @import("std");
 const hzzp = @import("hzzp");
 const wz = @import("wz");
-const ssl = @import("zig-bearssl");
 const analBuddy = @import("analysis-buddy");
 
 const format = @import("format.zig");
@@ -398,7 +397,7 @@ const Context = struct {
             try req.client.writeHeaderValue("Authorization", token);
         }
         try req.client.writeHeadComplete();
-        try req.ssl_tunnel.conn.flush();
+        //try req.ssl_tunnel.conn.flush();
 
         _ = try req.expectSuccessStatus();
         try req.completeHeaders();
@@ -528,7 +527,7 @@ pub fn main() !void {
             }
         }) catch |err| switch (err) {
             // TODO: investigate if IO localized enough. And possibly convert to ConnectionReset
-            error.ConnectionReset, error.IO => continue,
+            error.ConnectionReset => continue,
             else => @panic(@errorName(err)),
         };
 
@@ -542,7 +541,7 @@ const DiscordWs = struct {
     is_dying: bool,
     ssl_tunnel: *request.SslTunnel,
 
-    client: wz.base.Client.Client(request.SslTunnel.Stream.DstInStream, request.SslTunnel.Stream.DstOutStream),
+    client: wz.base.Client.Client(request.SslTunnel.Stream.Reader, request.SslTunnel.Stream.Writer),
     client_buffer: []u8,
     write_mutex: std.Mutex,
 
@@ -622,15 +621,15 @@ const DiscordWs = struct {
 
         result.client = wz.base.Client.create(
             result.client_buffer,
-            result.ssl_tunnel.conn.inStream(),
-            result.ssl_tunnel.conn.outStream(),
+            result.ssl_tunnel.conn.reader(),
+            result.ssl_tunnel.conn.writer(),
         );
 
         // Handshake
         try result.client.sendHandshakeHead("/?v=6&encoding=json");
         try result.client.sendHandshakeHeaderValue("Host", "gateway.discord.gg");
         try result.client.sendHandshakeHeadComplete();
-        try result.ssl_tunnel.conn.flush();
+        //try result.ssl_tunnel.conn.flush();
         try result.client.waitForHandshake();
 
         if (try result.client.readEvent()) |event| {
@@ -796,7 +795,7 @@ const DiscordWs = struct {
         try self.client.writeMessageHeader(.{ .length = msg.len, .opcode = .Text });
         try self.client.writeMessagePayload(msg);
 
-        try self.ssl_tunnel.conn.flush();
+        //try self.ssl_tunnel.conn.flush();
     }
 
     pub extern "c" fn shutdown(sockfd: std.os.fd_t, how: c_int) c_int;

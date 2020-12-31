@@ -36,11 +36,9 @@ pub fn build(b: *std.build.Builder) void {
         .path = "lib/analysis-buddy/src/main.zig",
     });
     exe.addPackage(.{
-        .name = "zig-bearssl",
-        .path = "lib/zig-bearssl/bearssl.zig",
+        .name = "iguanaTLS",
+        .path = "lib/iguanaTLS/src/main.zig",
     });
-
-    @import("lib/zig-bearssl/bearssl.zig").linkBearSSL("./lib/zig-bearssl", exe, target);
     exe.install();
 
     const run_cmd = exe.run();
