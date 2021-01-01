@@ -181,34 +181,37 @@ pub fn ChunkyReader(comptime Chunker: type) type {
         fn readFn(self: *Self, buffer: []u8) ReadEventInfo.error_set!usize {
             if (self.complete) return 0;
 
-            if (self.event) |event| {
-                const remaining = event.chunk.data[self.loc..];
-                if (buffer.len < remaining.len) {
-                    std.mem.copy(u8, buffer, remaining[0..buffer.len]);
-                    self.loc += buffer.len;
-                    return buffer.len;
-                } else {
-                    std.mem.copy(u8, buffer, remaining);
-                    if (event.chunk.final) {
-                        self.complete = true;
+            while (true) tail: {
+                if (self.event) |event| {
+                    const remaining = event.chunk.data[self.loc..];
+                    if (buffer.len < remaining.len) {
+                        std.mem.copy(u8, buffer, remaining[0..buffer.len]);
+                        self.loc += buffer.len;
+                        return buffer.len;
+                    } else {
+                        std.mem.copy(u8, buffer, remaining);
+                        if (event.chunk.final) {
+                            self.complete = true;
+                        }
+                        self.event = null;
+                        return remaining.len;
                     }
-                    self.event = null;
-                    return remaining.len;
-                }
-            } else {
-                const event = (try self.client.readEvent()) orelse {
-                    self.complete = true;
-                    return 0;
-                };
+                } else {
+                    const event = (try self.client.readEvent()) orelse {
+                        self.complete = true;
+                        return 0;
+                    };
 
-                if (event != .chunk) {
-                    self.complete = true;
-                    return 0;
-                }
+                    if (event != .chunk) {
+                        self.complete = true;
+                        return 0;
+                    }
 
-                self.event = event;
-                self.loc = 0;
-                return self.readFn(buffer);
+                    self.event = event;
+                    self.loc = 0;
+                    break :tail;
+                    // return self.readFn(buffer);
+                }
             }
         }
 

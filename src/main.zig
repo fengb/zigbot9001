@@ -9,6 +9,8 @@ const util = @import("util.zig");
 
 const agent = "zigbot9001/0.0.1";
 
+pub const io_mode = .evented;
+
 const auto_restart = true;
 //const auto_restart = std.builtin.mode == .Debug;
 
@@ -98,7 +100,7 @@ const Context = struct {
         result.auth_token = auth_token;
         result.github_auth_token = github_auth_token;
         result.prng = std.rand.DefaultPrng.init(@bitCast(u64, std.time.timestamp()));
-        result.prepared_anal = try analBuddy.prepare(allocator, ziglib);
+        //result.prepared_anal = try analBuddy.prepare(allocator, ziglib);
         errdefer analBuddy.dispose(&result.prepared_anal);
 
         result.start_time = std.time.milliTimestamp();
@@ -128,9 +130,9 @@ const Context = struct {
     pub fn askHandler(self: *Context) void {
         while (true) {
             const mailbox = self.ask_mailbox.get();
-            self.askOne(mailbox.channel_id, mailbox.ask.slice()) catch |err| {
-                std.debug.print("{s}\n", .{err});
-            };
+            // self.askOne(mailbox.channel_id, mailbox.ask.slice()) catch |err| {
+            //     std.debug.print("{s}\n", .{err});
+            // };
         }
     }
 
@@ -548,7 +550,7 @@ const DiscordWs = struct {
     heartbeat_interval: usize,
     heartbeat_seq: ?usize,
     heartbeat_ack: bool,
-    heartbeat_thread: *std.Thread,
+    heartbeat_ping_frame: @Frame(heartbeatPing),
 
     const Opcode = enum {
         /// An event was dispatched.
@@ -695,7 +697,7 @@ const DiscordWs = struct {
 
         result.heartbeat_seq = null;
         result.heartbeat_ack = true;
-        result.heartbeat_thread = try std.Thread.spawn(result, heartbeatHandler);
+        result.heartbeat_ping_frame = async result.heartbeatPing();
 
         return result;
     }
@@ -704,7 +706,7 @@ const DiscordWs = struct {
         self.ssl_tunnel.deinit();
 
         self.is_dying = true;
-        self.heartbeat_thread.wait();
+        await self.heartbeat_ping_frame;
 
         self.allocator.destroy(self);
     }
@@ -798,9 +800,7 @@ const DiscordWs = struct {
         //try self.ssl_tunnel.conn.flush();
     }
 
-    pub extern "c" fn shutdown(sockfd: std.os.fd_t, how: c_int) c_int;
-
-    fn heartbeatHandler(self: *DiscordWs) void {
+    fn heartbeatPing(self: *DiscordWs) void {
         while (true) {
             const start = std.time.milliTimestamp();
             // Buffer to fire early than late
@@ -813,11 +813,9 @@ const DiscordWs = struct {
 
             if (!self.heartbeat_ack) {
                 std.debug.print("Missed heartbeat. Reconnecting...\n", .{});
-                const SHUT_RDWR = 2;
-                const rc = shutdown(self.ssl_tunnel.tcp_conn.handle, SHUT_RDWR);
-                if (rc != 0) {
-                    std.debug.print("Shutdown failed: {d}\n", .{std.c.getErrno(rc)});
-                }
+                std.os.shutdown(self.ssl_tunnel.tcp_conn.handle, .both) catch |err| {
+                    std.debug.print("Shutdown failed: {d}\n", .{err});
+                };
                 return;
             }
 
@@ -832,11 +830,9 @@ const DiscordWs = struct {
                     std.os.nanosleep(@as(u64, 1) << retries, 0);
                     retries += 1;
                 } else {
-                    const SHUT_RDWR = 2;
-                    const rc = shutdown(self.ssl_tunnel.tcp_conn.handle, SHUT_RDWR);
-                    if (rc != 0) {
-                        std.debug.print("Shutdown failed: {d}\n", .{std.c.getErrno(rc)});
-                    }
+                    std.os.shutdown(self.ssl_tunnel.tcp_conn.handle, .both) catch |e| {
+                        std.debug.print("Shutdown failed: {d}\n", .{e});
+                    };
                     return;
                 }
             }
