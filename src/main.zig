@@ -84,13 +84,12 @@ const Context = struct {
 
     start_time: i64,
 
-    ask_mailbox: util.Mailbox(AskData),
-    ask_thread: *std.Thread,
+    ask_active: bool,
+    // This is a pointer to break a reference cycle
+    ask_frame: *@Frame(askOne),
 
     // TODO move this to instance variable somehow?
     var awaiting_enema = false;
-
-    const AskData = struct { ask: Buffer(0x100), channel_id: u64 };
 
     pub fn init(allocator: *std.mem.Allocator, auth_token: []const u8, ziglib: []const u8, github_auth_token: ?[]const u8) !*Context {
         const result = try allocator.create(Context);
@@ -103,10 +102,10 @@ const Context = struct {
         //result.prepared_anal = try analBuddy.prepare(allocator, ziglib);
         errdefer analBuddy.dispose(&result.prepared_anal);
 
-        result.start_time = std.time.milliTimestamp();
+        result.ask_active = false;
+        result.ask_frame = try allocator.create(@Frame(askOne));
 
-        result.ask_mailbox = util.Mailbox(AskData).init();
-        result.ask_thread = try std.Thread.spawn(result, askHandler);
+        result.start_time = std.time.milliTimestamp();
 
         std.os.sigaction(
             std.os.SIGWINCH,
@@ -127,16 +126,21 @@ const Context = struct {
         awaiting_enema = true;
     }
 
-    pub fn askHandler(self: *Context) void {
-        while (true) {
-            const mailbox = self.ask_mailbox.get();
-            // self.askOne(mailbox.channel_id, mailbox.ask.slice()) catch |err| {
-            //     std.debug.print("{s}\n", .{err});
-            // };
+    pub fn dispatchAsk(self: *Context, channel_id: u64, ask: Buffer(256)) void {
+        if (!self.ask_active) {
+            self.ask_active = true;
+            self.ask_frame.* = async self.askOne(channel_id, ask);
         }
     }
 
-    pub fn askOne(self: *Context, channel_id: u64, ask: []const u8) !void {
+    pub fn askOne(self: *Context, channel_id: u64, ask: Buffer(256)) void {
+        defer self.ask_active = false;
+        self.askOneWithErrors(channel_id, ask.slice()) catch |err| {
+            std.debug.print("{}\n", .{err});
+        };
+    }
+
+    pub fn askOneWithErrors(self: *Context, channel_id: u64, ask: []const u8) !void {
         const swh = util.Swhash(16);
         switch (swh.match(ask)) {
             swh.case("ping") => return try self.sendDiscordMessage(.{
@@ -169,7 +173,7 @@ const Context = struct {
                 return try self.sendDiscordMessage(.{
                     .channel_id = channel_id,
                     .title = "",
-                    .description = std.fmt.bufPrint(
+                    .description = try std.fmt.bufPrint(
                         &buf,
                         \\```
                         \\Uptime:    {s}
@@ -182,7 +186,7 @@ const Context = struct {
                             format.time(cpu_sec + cpu_us),
                             @intCast(u64, rusage.maxrss),
                         },
-                    ) catch unreachable,
+                    ),
                 });
             },
             swh.case("zen") => return try self.sendDiscordMessage(.{
@@ -280,14 +284,14 @@ const Context = struct {
                 try analBuddy.reloadCached(&arena, self.prepared_anal.store.allocator, &self.prepared_anal);
                 awaiting_enema = false;
             }
-            if (try analBuddy.analyse(&arena, &self.prepared_anal, ask)) |match| {
-                try self.sendDiscordMessage(.{
-                    .channel_id = channel_id,
-                    .title = ask,
-                    .description = std.mem.trim(u8, match, " \t\r\n"),
-                    .color = .red,
-                });
-            } else {}
+            // if (try analBuddy.analyse(&arena, &self.prepared_anal, ask)) |match| {
+            //     try self.sendDiscordMessage(.{
+            //         .channel_id = channel_id,
+            //         .title = ask,
+            //         .description = std.mem.trim(u8, match, " \t\r\n"),
+            //         .color = .red,
+            //     });
+            // } else {}
         }
     }
 
@@ -486,7 +490,7 @@ pub fn main() !void {
 
                 if (ask.len > 0 and channel_id != null) {
                     std.debug.print(">> %%{s}\n", .{ask.slice()});
-                    ctx.ask_mailbox.putOverwrite(.{ .channel_id = channel_id.?, .ask = ask });
+                    ctx.dispatchAsk(channel_id.?, ask);
                 }
             }
 
