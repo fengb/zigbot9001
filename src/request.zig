@@ -2,6 +2,7 @@ const std = @import("std");
 const hzzp = @import("hzzp");
 // const ssl = @import("zig-bearssl");
 const tls = @import("iguanaTLS");
+const async_shim = @import("async_shim.zig");
 
 const bot_agent = "zigbot9001/0.0.1";
 
@@ -15,7 +16,7 @@ pub const SslTunnel = struct {
     tcp_conn: std.fs.File,
     conn: Stream,
 
-    pub const Stream = tls.Client(std.fs.File.Reader, std.fs.File.Writer);
+    pub const Stream = tls.Client(async_shim.FileReader, async_shim.FileWriter);
 
     pub fn init(args: struct {
         allocator: *std.mem.Allocator,
@@ -42,8 +43,8 @@ pub const SslTunnel = struct {
         errdefer result.tcp_conn.close();
 
         result.conn = try tls.client_connect(.{
-            .reader = result.tcp_conn.reader(),
-            .writer = result.tcp_conn.writer(),
+            .reader = async_shim.fileReader(result.tcp_conn),
+            .writer = async_shim.fileWriter(result.tcp_conn),
             .cert_verifier = .none,
         }, args.host);
         errdefer result.conn.close_notify() catch {};

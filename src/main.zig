@@ -9,7 +9,9 @@ const util = @import("util.zig");
 
 const agent = "zigbot9001/0.0.1";
 
-pub const io_mode = .evented;
+//pub const io_mode = .evented;
+var event_loop_state: std.event.Loop = undefined;
+pub const event_loop = &event_loop_state;
 
 const auto_restart = true;
 //const auto_restart = std.builtin.mode == .Debug;
@@ -100,7 +102,7 @@ const Context = struct {
         result.github_auth_token = github_auth_token;
         result.prng = std.rand.DefaultPrng.init(@bitCast(u64, std.time.timestamp()));
         //result.prepared_anal = try analBuddy.prepare(allocator, ziglib);
-        errdefer analBuddy.dispose(&result.prepared_anal);
+        //errdefer analBuddy.dispose(&result.prepared_anal);
 
         result.ask_active = false;
         result.ask_frame = try allocator.create(@Frame(askOne));
@@ -449,6 +451,16 @@ pub fn main() !void {
         std.os.getenv("GITHUB_AUTH"),
     );
 
+    try event_loop_state.init();
+    defer event_loop_state.deinit();
+
+    event_loop_state.beginOneEvent();
+    _ = async run(context);
+    event_loop_state.run();
+    unreachable;
+}
+
+pub fn run(context: *Context) noreturn {
     var reconnect_wait: u64 = 1;
     while (true) {
         var discord_ws = DiscordWs.init(
