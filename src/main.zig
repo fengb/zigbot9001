@@ -187,19 +187,19 @@ const Context = struct {
                 .title = "For Great Justice",
                 .description =
                 \\```
-                \\* Communicate intent precisely.
-                \\* Edge cases matter.
-                \\* Favor reading code over writing code.
-                \\* Only one obvious way to do things.
-                \\* Runtime crashes are better than bugs.
-                \\* Compile errors are better than runtime crashes.
-                \\* Incremental improvements.
-                \\* Avoid local maximums.
-                \\* Reduce the amount one must remember.
-                \\* Focus on code rather than style.
-                \\* Resource allocation may fail; resource deallocation must succeed.
-                \\* Memory is a resource.
-                \\* Together we serve the users.
+                \\0: Communicate intent precisely.
+                \\1: Edge cases matter.
+                \\2: Favor reading code over writing code.
+                \\3: Only one obvious way to do things.
+                \\4: Runtime crashes are better than bugs.
+                \\5: Compile errors are better than runtime crashes.
+                \\6: Incremental improvements.
+                \\7: Avoid local maximums.
+                \\8: Reduce the amount one must remember.
+                \\9: Focus on code rather than style.
+                \\A: Resource allocation may fail; resource deallocation must succeed.
+                \\B: Memory is a resource.
+                \\C: Together we serve the users.
                 \\```
             }),
             swh.case("zenlang"),
