@@ -1075,6 +1075,7 @@ const DiscordWs = struct {
             switch (event.header.opcode) {
                 .Text => {
                     self.processChunks(ctx, handler) catch |err| {
+                        ctx.debugDump(std.io.getStdErr().writer()) catch {};
                         std.debug.print("Process chunks failed: {s}\n", .{err});
                     };
                 },
