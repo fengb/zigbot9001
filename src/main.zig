@@ -494,7 +494,6 @@ const Context = struct {
 
         var req = try request.Https.init(.{
             .allocator = self.allocator,
-            .pem = @embedFile("../discord-com-chain.pem"),
             .host = "discord.com",
             .method = method,
             .path = path,
@@ -559,7 +558,6 @@ const Context = struct {
     pub fn requestRun(self: Context, src: [][]const u8, stdout_buf: []u8, stderr_buf: []u8) !RunResult {
         var req = try request.Https.init(.{
             .allocator = self.allocator,
-            .pem = @embedFile("../emkc-org-chain.pem"),
             .host = "emkc.org",
             .method = "POST",
             .path = "/api/v1/piston/execute",
@@ -636,7 +634,6 @@ const Context = struct {
         var path: [0x100]u8 = undefined;
         var req = try request.Https.init(.{
             .allocator = self.allocator,
-            .pem = @embedFile("../github-com-chain.pem"),
             .host = "api.github.com",
             .method = "GET",
             .path = try std.fmt.bufPrint(&path, "/repos/{s}/issues/{s}", .{ repo, issue }),
@@ -967,7 +964,6 @@ const DiscordWs = struct {
         std.debug.assert(self.ssl_tunnel == null);
         self.ssl_tunnel = try request.SslTunnel.init(.{
             .allocator = self.allocator,
-            .pem = @embedFile("../discord-gg-chain.pem"),
             .host = "gateway.discord.gg",
         });
         errdefer self.ssl_tunnel.?.deinit();

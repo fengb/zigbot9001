@@ -4,10 +4,24 @@ const ssl = @import("zig-bearssl");
 
 const bot_agent = "zigbot9001/0.0.1";
 
+const ca = struct {
+    const pem = @embedFile("../cacert.pem");
+
+    var _bytes_buffer: [0x100000]u8 = undefined;
+    var _fba = std.heap.FixedBufferAllocator.init(&_bytes_buffer);
+
+    var _trust_anchor = ssl.TrustAnchorCollection.init(&_fba.allocator);
+    fn trustAnchor() ssl.TrustAnchorCollection {
+        if (_trust_anchor.items.items.len == 0) {
+            _trust_anchor.appendFromPEM(pem) catch unreachable;
+        }
+        return _trust_anchor;
+    }
+};
+
 pub const SslTunnel = struct {
     allocator: *std.mem.Allocator,
 
-    trust_anchor: ssl.TrustAnchorCollection,
     x509: ssl.x509.Minimal,
     client: ssl.Client,
 
@@ -21,7 +35,6 @@ pub const SslTunnel = struct {
 
     pub fn init(args: struct {
         allocator: *std.mem.Allocator,
-        pem: []const u8,
         host: [:0]const u8,
         port: u16 = 443,
     }) !*SslTunnel {
@@ -30,11 +43,7 @@ pub const SslTunnel = struct {
 
         result.allocator = args.allocator;
 
-        result.trust_anchor = ssl.TrustAnchorCollection.init(args.allocator);
-        errdefer result.trust_anchor.deinit();
-        try result.trust_anchor.appendFromPEM(args.pem);
-
-        result.x509 = ssl.x509.Minimal.init(result.trust_anchor);
+        result.x509 = ssl.x509.Minimal.init(ca.trustAnchor());
         result.client = ssl.Client.init(result.x509.getEngine());
         result.client.relocate();
         try result.client.reset(args.host, false);
@@ -52,7 +61,6 @@ pub const SslTunnel = struct {
 
     pub fn deinit(self: *SslTunnel) void {
         self.tcp_conn.close();
-        self.trust_anchor.deinit();
 
         self.allocator.destroy(self);
     }
@@ -68,7 +76,6 @@ pub const Https = struct {
 
     pub fn init(args: struct {
         allocator: *std.mem.Allocator,
-        pem: []const u8,
         host: [:0]const u8,
         port: u16 = 443,
         method: []const u8,
@@ -76,7 +83,6 @@ pub const Https = struct {
     }) !Https {
         var ssl_tunnel = try SslTunnel.init(.{
             .allocator = args.allocator,
-            .pem = args.pem,
             .host = args.host,
             .port = args.port,
         });
