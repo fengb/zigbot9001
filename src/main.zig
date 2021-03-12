@@ -1225,7 +1225,10 @@ const DiscordWs = struct {
         while (true) {
             if (heartbeat_interval_ms == 0) {
                 switch (self.heartbeat_mailbox.get()) {
-                    .start => |info| heartbeat_interval_ms = info.heartbeat_interval_ms,
+                    .start => |info| {
+                        heartbeat_interval_ms = info.heartbeat_interval_ms;
+                        self.heartbeat_ack = true;
+                    },
                     .stop => {},
                     .terminate => return,
                 }
