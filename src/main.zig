@@ -292,7 +292,12 @@ const Context = struct {
                 error.InvalidInput => {
                     _ = try self.sendDiscordMessage(.{
                         .channel_id = channel_id,
-                        .title = "Invalid Input",
+                        .title = "Error - expected format:",
+                        .description = &.{
+                            \\%%run \`\`\`
+                            \\// write your code here
+                            \\\`\`\`
+                        },
                     });
                     return;
                 },
