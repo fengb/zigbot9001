@@ -105,7 +105,7 @@ const Context = struct {
         result.timer = try std.time.Timer.start();
 
         result.ask_mailbox = .{};
-        result.ask_thread = try std.Thread.spawn(result, askHandler);
+        result.ask_thread = try std.Thread.spawn(askHandler, result);
 
         std.os.sigaction(
             std.os.SIGWINCH,
@@ -174,15 +174,15 @@ const Context = struct {
                         std.fmt.bufPrint(
                             &buf,
                             \\```
-                            \\Uptime:    {s}
-                            \\CPU time:  {s}
-                            \\Max RSS:      {Bi:.3}
+                            \\Uptime:    {}
+                            \\CPU time:  {}
+                            \\Max RSS:      {:.3}
                             \\```
                         ,
                             .{
                                 format.time(@intCast(i64, self.timer.read() / std.time.ns_per_ms)),
                                 format.time(cpu_sec + cpu_us),
-                                @intCast(u64, rusage.maxrss),
+                                std.fmt.fmtIntSizeBin(@intCast(u64, rusage.maxrss)),
                             },
                         ) catch unreachable,
                     },
@@ -510,10 +510,7 @@ const Context = struct {
         try req.client.writeHeaderValue("Authorization", self.auth_token);
 
         // Zig has difficulty resolving these peer types
-        const image: ?struct { url: []const u8 } = if (args.image) |url|
-            .{ .url = url }
-        else
-            null;
+        const image: ?struct { url: []const u8 } = if (args.image) |url| .{ .url = url } else null;
 
         const embed = .{
             .title = args.title,
@@ -950,7 +947,7 @@ const DiscordWs = struct {
         result.heartbeat_seq = null;
         result.heartbeat_ack = true;
         result.heartbeat_mailbox = .{};
-        result.heartbeat_thread = try std.Thread.spawn(result, heartbeatHandler);
+        result.heartbeat_thread = try std.Thread.spawn(heartbeatHandler, result);
 
         return result;
     }
