@@ -1,0 +1,13 @@
+deps:
+  analysis-buddy:
+    src:
+      github:
+        user: alexnask
+        repo: analysis-buddy
+        ref: master
+  zCord:
+    src:
+      github:
+        user: fengb
+        repo: zCord
+        ref: master

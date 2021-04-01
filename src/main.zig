@@ -1,14 +1,9 @@
 const std = @import("std");
-const hzzp = @import("hzzp");
-const wz = @import("wz");
-const ssl = @import("zig-bearssl");
+const zCord = @import("zCord");
 const analBuddy = @import("analysis-buddy");
 
 const format = @import("format.zig");
-const request = @import("request.zig");
 const util = @import("util.zig");
-
-const agent = "zigbot9001/0.0.1";
 
 const auto_restart = true;
 //const auto_restart = std.builtin.mode == .Debug;
@@ -491,16 +486,15 @@ const Context = struct {
     }) !u64 {
         var path_buf: [0x100]u8 = undefined;
 
-        const method = if (args.edit_msg_id == 0) "POST" else "PATCH";
         const path = if (args.edit_msg_id == 0)
             try std.fmt.bufPrint(&path_buf, "/api/v6/channels/{d}/messages", .{args.channel_id})
         else
             try std.fmt.bufPrint(&path_buf, "/api/v6/channels/{d}/messages/{d}", .{ args.channel_id, args.edit_msg_id });
 
-        var req = try request.Https.init(.{
+        var req = try zCord.https.Request.init(.{
             .allocator = self.allocator,
             .host = "discord.com",
-            .method = method,
+            .method = if (args.edit_msg_id == 0) .POST else .PATCH,
             .path = path,
         });
         defer req.deinit();
@@ -530,10 +524,10 @@ const Context = struct {
         if (req.expectSuccessStatus()) |_| {
             try req.completeHeaders();
 
-            var stream = util.streamJson(req.client.reader());
+            var stream = zCord.json.stream(req.client.reader());
 
             const root = try stream.root();
-            if (try root.objectMatchAny(&.{"id"})) |match| {
+            if (try root.objectMatchOne("id")) |match| {
                 var buf: [0x100]u8 = undefined;
                 const id_string = try match.value.stringBuffer(&buf);
                 return try std.fmt.parseInt(u64, id_string, 10);
@@ -543,10 +537,10 @@ const Context = struct {
             error.TooManyRequests => {
                 try req.completeHeaders();
 
-                var stream = util.streamJson(req.client.reader());
+                var stream = zCord.json.stream(req.client.reader());
                 const root = try stream.root();
 
-                if (try root.objectMatch("retry_after")) |match| {
+                if (try root.objectMatchOne("retry_after")) |match| {
                     const sec = try match.value.number(f64);
                     // Don't bother trying for awhile
                     std.time.sleep(@floatToInt(u64, sec * std.time.ns_per_s));
@@ -558,10 +552,10 @@ const Context = struct {
     }
 
     pub fn requestRun(self: Context, src: [][]const u8, stdout_buf: []u8, stderr_buf: []u8) !RunResult {
-        var req = try request.Https.init(.{
+        var req = try zCord.https.Request.init(.{
             .allocator = self.allocator,
             .host = "emkc.org",
-            .method = "POST",
+            .method = .POST,
             .path = "/api/v1/piston/execute",
         });
         defer req.deinit();
@@ -580,7 +574,7 @@ const Context = struct {
         _ = try req.expectSuccessStatus();
         try req.completeHeaders();
 
-        var stream = util.streamJson(req.client.reader());
+        var stream = zCord.json.stream(req.client.reader());
         const root = try stream.root();
 
         var result = RunResult{
@@ -588,28 +582,22 @@ const Context = struct {
             .stderr = stderr_buf[0..0],
         };
 
-        while (try root.objectMatchAny(&[_][]const u8{
-            "stdout",
-            "stderr",
-        })) |match| {
-            const swh = util.Swhash(16);
-            switch (swh.match(match.key)) {
-                swh.case("stdout") => {
-                    result.stdout = match.value.stringBuffer(stdout_buf) catch |err| switch (err) {
-                        error.NoSpaceLeft => stdout_buf,
-                        else => |e| return e,
-                    };
-                },
-                swh.case("stderr") => {
-                    result.stderr = match.value.stringBuffer(stderr_buf) catch |err| switch (err) {
-                        error.NoSpaceLeft => stderr_buf,
-                        else => |e| return e,
-                    };
-                },
-                else => unreachable,
-            }
-            _ = try match.value.finalizeToken();
-        }
+        while (try root.objectMatch(enum { stdout, stderr })) |match| switch (match) {
+            .stdout => |e_stdout| {
+                result.stdout = e_stdout.stringBuffer(stdout_buf) catch |err| switch (err) {
+                    error.NoSpaceLeft => stdout_buf,
+                    else => |e| return e,
+                };
+                _ = try e_stdout.finalizeToken();
+            },
+            .stderr => |e_stderr| {
+                result.stderr = e_stderr.stringBuffer(stderr_buf) catch |err| switch (err) {
+                    error.NoSpaceLeft => stderr_buf,
+                    else => |e| return e,
+                };
+                _ = try e_stderr.finalizeToken();
+            },
+        };
         return result;
     }
 
@@ -634,47 +622,43 @@ const Context = struct {
     };
     pub fn requestGithubIssue(self: Context, repo: []const u8, issue: []const u8) !GithubIssue {
         var path: [0x100]u8 = undefined;
-        var req = try request.Https.init(.{
+        var req = try zCord.https.Request.init(.{
             .allocator = self.allocator,
             .host = "api.github.com",
-            .method = "GET",
+            .method = .GET,
             .path = try std.fmt.bufPrint(&path, "/repos/{s}/issues/{s}", .{ repo, issue }),
         });
         defer req.deinit();
 
+        try req.client.writeHeaderValue("User-Agent", "zCord/0.0.1");
         try req.client.writeHeaderValue("Accept", "application/json");
         if (self.github_auth_token) |github_auth_token| {
             try req.client.writeHeaderFormat("Authorization", "token {s}", .{github_auth_token});
         }
         try req.client.finishHeaders();
-        try req.ssl_tunnel.conn.flush();
 
         _ = try req.expectSuccessStatus();
         try req.completeHeaders();
-        var stream = util.streamJson(req.client.reader());
+        var stream = zCord.json.stream(req.client.reader());
         const root = try stream.root();
 
         var result = GithubIssue{ .repo = Buffer(0x100).initFrom(repo), .number = 0, .title = .{}, .url = .{} };
-        while (try root.objectMatchAny(&[_][]const u8{ "number", "title", "html_url" })) |match| {
-            const swh = util.Swhash(16);
-            switch (swh.match(match.key)) {
-                swh.case("number") => {
-                    result.number = try match.value.number(u32);
-                },
-                swh.case("html_url") => {
-                    const slice = try match.value.stringBuffer(&result.url.data);
-                    result.url.len = slice.len;
-                },
-                swh.case("title") => {
-                    const slice = try match.value.stringBuffer(&result.title.data);
-                    result.title.len = slice.len;
-                },
-                else => unreachable,
-            }
+        while (try root.objectMatch(enum { number, title, html_url })) |match| switch (match) {
+            .number => |e_number| {
+                result.number = try e_number.number(u32);
+            },
+            .html_url => |e_html_url| {
+                const slice = try e_html_url.stringBuffer(&result.url.data);
+                result.url.len = slice.len;
+            },
+            .title => |e_title| {
+                const slice = try e_title.stringBuffer(&result.title.data);
+                result.title.len = slice.len;
+            },
+        };
 
-            if (result.number > 0 and result.title.len > 0 and result.url.len > 0) {
-                return result;
-            }
+        if (result.number > 0 and result.title.len > 0 and result.url.len > 0) {
+            return result;
         }
 
         return error.FieldNotFound;
@@ -704,6 +688,8 @@ pub fn main() !void {
         null,
     );
 
+    try zCord.root_ca.preload(std.heap.page_allocator);
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
     var auth_buf: [0x100]u8 = undefined;
@@ -714,9 +700,10 @@ pub fn main() !void {
         std.os.getenv("GITHUB_AUTH"),
     );
 
-    var discord_ws = try DiscordWs.init(.{
+    const cli = try zCord.Client.create(.{
         .allocator = context.allocator,
         .auth_token = context.auth_token,
+        .context = context,
         .intents = .{ .guild_messages = true },
         .presence = .{
             .status = .online,
@@ -728,35 +715,30 @@ pub fn main() !void {
             },
         },
     });
+    defer cli.destroy();
 
-    defer discord_ws.deinit();
-
-    discord_ws.run(context, struct {
-        fn handleDispatch(ctx: *Context, name: []const u8, data: anytype) !void {
+    cli.ws(struct {
+        pub fn handleDispatch(client: *zCord.Client, name: []const u8, data: anytype) !void {
             if (!std.mem.eql(u8, name, "MESSAGE_CREATE")) return;
 
             var ask: Buffer(0x1000) = .{};
             var channel_id: ?u64 = null;
 
-            while (try data.objectMatchAny(&[_][]const u8{ "content", "channel_id" })) |match| {
-                const swh = util.Swhash(16);
-                switch (swh.match(match.key)) {
-                    swh.case("content") => {
-                        ask = try findAsk(try match.value.stringReader());
-                        _ = try match.value.finalizeToken();
-                    },
-                    swh.case("channel_id") => {
-                        var buf: [0x100]u8 = undefined;
-                        const channel_string = try match.value.stringBuffer(&buf);
-                        channel_id = try std.fmt.parseInt(u64, channel_string, 10);
-                    },
-                    else => unreachable,
-                }
-            }
+            while (try data.objectMatch(enum { content, channel_id })) |match| switch (match) {
+                .content => |e_content| {
+                    ask = try findAsk(try e_content.stringReader());
+                    _ = try e_content.finalizeToken();
+                },
+                .channel_id => |e_channel_id| {
+                    var buf: [0x100]u8 = undefined;
+                    const channel_string = try e_channel_id.stringBuffer(&buf);
+                    channel_id = try std.fmt.parseInt(u64, channel_string, 10);
+                },
+            };
 
             if (ask.len > 0 and channel_id != null) {
                 std.debug.print(">> %%{s}\n", .{ask.slice()});
-                ctx.ask_mailbox.putOverwrite(.{ .channel_id = channel_id.?, .ask = ask });
+                client.ctx(Context).ask_mailbox.putOverwrite(.{ .channel_id = channel_id.?, .ask = ask });
             }
         }
 
@@ -810,465 +792,4 @@ pub fn main() !void {
         error.AuthenticationFailed => |e| return e,
         else => @panic(@errorName(err)),
     };
-
-    std.debug.print("Exited: {}\n", .{discord_ws.client});
-}
-
-const DiscordWs = struct {
-    allocator: *std.mem.Allocator,
-
-    auth_token: []const u8,
-    intents: Intents,
-    presence: Presence,
-
-    ssl_tunnel: ?*request.SslTunnel,
-    client: wz.base.client.BaseClient(request.SslTunnel.Stream.DstReader, request.SslTunnel.Stream.DstWriter),
-    client_buffer: [0x1000]u8,
-    write_mutex: std.Thread.Mutex,
-
-    heartbeat_seq: ?usize,
-    heartbeat_ack: bool,
-    heartbeat_mailbox: util.Mailbox(HeartbeatMessage),
-    heartbeat_thread: *std.Thread,
-
-    const HeartbeatMessage = union(enum) {
-        start: ConnectInfo,
-        stop: void,
-        terminate: void,
-    };
-
-    const ConnectInfo = struct {
-        heartbeat_interval_ms: u64,
-    };
-
-    const Opcode = enum {
-        /// An event was dispatched.
-        dispatch = 0,
-        /// Fired periodically by the client to keep the connection alive.
-        heartbeat = 1,
-        /// Starts a new session during the initial handshake.
-        identify = 2,
-        /// Update the client's presence.
-        presence_update = 3,
-        /// Used to join/leave or move between voice channels.
-        voice_state_update = 4,
-        /// Resume a previous session that was disconnected.
-        @"resume" = 6,
-        /// You should attempt to reconnect and resume immediately.
-        reconnect = 7,
-        /// Request information about offline guild members in a large guild.
-        request_guild_members = 8,
-        /// The session has been invalidated. You should reconnect and identify/resume accordingly.
-        invalid_session = 9,
-        /// Sent immediately after connecting, contains the heartbeat_interval to use.
-        hello = 10,
-        /// Sent in response to receiving a heartbeat to acknowledge that it has been received.
-        heartbeat_ack = 11,
-    };
-
-    const Intents = packed struct {
-        guilds: bool = false,
-        guild_members: bool = false,
-        guild_bans: bool = false,
-        guild_emojis: bool = false,
-        guild_integrations: bool = false,
-        guild_webhooks: bool = false,
-        guild_invites: bool = false,
-        guild_voice_states: bool = false,
-        guild_presences: bool = false,
-        guild_messages: bool = false,
-        guild_message_reactions: bool = false,
-        guild_message_typing: bool = false,
-        direct_messages: bool = false,
-        direct_message_reactions: bool = false,
-        direct_message_typing: bool = false,
-        _pad: bool = undefined,
-
-        fn toRaw(self: Intents) u16 {
-            return @bitCast(u16, self);
-        }
-
-        fn fromRaw(raw: u16) Intents {
-            return @bitCast(Intents, self);
-        }
-    };
-
-    const Presence = struct {
-        status: enum {
-            online,
-            dnd,
-            idle,
-            invisible,
-            offline,
-
-            pub fn jsonStringify(self: @This(), options: std.json.StringifyOptions, writer: anytype) !void {
-                try writer.writeAll("\"");
-                try writer.writeAll(@tagName(self));
-                try writer.writeAll("\"");
-            }
-        } = .online,
-        activities: []const Activity = &.{},
-        since: ?u32 = null,
-        afk: bool = false,
-    };
-
-    const Activity = struct {
-        type: enum {
-            Game = 0,
-            Streaming = 1,
-            Listening = 2,
-            Custom = 4,
-            Competing = 5,
-
-            pub fn jsonStringify(self: @This(), options: std.json.StringifyOptions, writer: anytype) !void {
-                try writer.print("{d}", .{@enumToInt(self)});
-            }
-        },
-        name: []const u8,
-    };
-
-    pub fn init(args: struct {
-        allocator: *std.mem.Allocator,
-        auth_token: []const u8,
-        intents: Intents,
-        presence: Presence = .{},
-    }) !*DiscordWs {
-        const result = try args.allocator.create(DiscordWs);
-        errdefer args.allocator.destroy(result);
-        result.allocator = args.allocator;
-
-        result.auth_token = args.auth_token;
-        result.intents = args.intents;
-        result.presence = args.presence;
-
-        result.ssl_tunnel = null;
-        result.write_mutex = .{};
-
-        result.heartbeat_seq = null;
-        result.heartbeat_ack = true;
-        result.heartbeat_mailbox = .{};
-        result.heartbeat_thread = try std.Thread.spawn(heartbeatHandler, result);
-
-        return result;
-    }
-
-    pub fn deinit(self: *DiscordWs) void {
-        if (self.ssl_tunnel) |ssl_tunnel| {
-            ssl_tunnel.deinit();
-        }
-        self.heartbeat_mailbox.putOverwrite(.terminate);
-        // Reap the thread
-        self.heartbeat_thread.wait();
-        self.allocator.destroy(self);
-    }
-
-    fn connect(self: *DiscordWs) !ConnectInfo {
-        std.debug.assert(self.ssl_tunnel == null);
-        self.ssl_tunnel = try request.SslTunnel.init(.{
-            .allocator = self.allocator,
-            .host = "gateway.discord.gg",
-        });
-        errdefer self.ssl_tunnel.?.deinit();
-
-        self.client = wz.base.client.create(
-            &self.client_buffer,
-            self.ssl_tunnel.?.conn.reader(),
-            self.ssl_tunnel.?.conn.writer(),
-        );
-
-        // Handshake
-        try self.client.handshakeStart("/?v=6&encoding=json");
-        try self.client.handshakeAddHeaderValue("Host", "gateway.discord.gg");
-        try self.client.handshake_client.finishHeaders(); // needed due to SSL flushing
-        try self.ssl_tunnel.?.conn.flush();
-        try self.client.handshakeFinish();
-
-        if (try self.client.next()) |event| {
-            std.debug.assert(event == .header);
-        }
-
-        var result = ConnectInfo{ .heartbeat_interval_ms = 0 };
-        if (try self.client.next()) |event| {
-            std.debug.assert(event == .chunk);
-
-            var fba = std.io.fixedBufferStream(event.chunk.data);
-            var stream = util.streamJson(fba.reader());
-
-            const root = try stream.root();
-            while (try root.objectMatchAny(&[_][]const u8{ "op", "d" })) |match| {
-                const swh = util.Swhash(2);
-                switch (swh.match(match.key)) {
-                    swh.case("op") => {
-                        const op = try std.meta.intToEnum(Opcode, try match.value.number(u8));
-                        if (op != .hello) {
-                            return error.MalformedHelloResponse;
-                        }
-                    },
-                    swh.case("d") => {
-                        while (try match.value.objectMatch("heartbeat_interval")) |hbi| {
-                            result.heartbeat_interval_ms = try hbi.value.number(u32);
-                        }
-                    },
-                    else => unreachable,
-                }
-            }
-        }
-
-        if (result.heartbeat_interval_ms == 0) {
-            return error.MalformedHelloResponse;
-        }
-
-        try self.sendCommand(.identify, .{
-            .compress = false,
-            .intents = self.intents.toRaw(),
-            .token = self.auth_token,
-            .properties = .{
-                .@"$os" = @tagName(std.Target.current.os.tag),
-                .@"$browser" = agent,
-                .@"$device" = agent,
-            },
-            .presence = self.presence,
-        });
-
-        return result;
-    }
-
-    fn disconnect(self: *DiscordWs) void {
-        if (self.ssl_tunnel) |ssl_tunnel| {
-            ssl_tunnel.deinit();
-            self.ssl_tunnel = null;
-        }
-    }
-
-    pub fn run(self: *DiscordWs, ctx: anytype, handler: anytype) !void {
-        var reconnect_wait: u64 = 1;
-        while (true) {
-            const info = self.connect() catch |err| {
-                std.debug.print("Connect error: {s}\n", .{@errorName(err)});
-                std.time.sleep(reconnect_wait * std.time.ns_per_s);
-                reconnect_wait = std.math.min(reconnect_wait * 2, 30);
-                continue;
-            };
-            defer self.disconnect();
-
-            reconnect_wait = 1;
-
-            self.heartbeat_mailbox.putOverwrite(.{ .start = info });
-            defer self.heartbeat_mailbox.putOverwrite(.stop);
-
-            self.listen(ctx, handler) catch |err| switch (err) {
-                // TODO: handle reconnect better
-                // IO comes from BearSSL
-                error.ConnectionReset, error.IO => continue,
-                else => |e| return e,
-            };
-        }
-    }
-
-    pub fn listen(self: *DiscordWs, ctx: anytype, handler: anytype) !void {
-        while (try self.client.next()) |event| {
-            // Skip over any remaining chunks. The processor didn't take care of it.
-            if (event != .header) continue;
-
-            switch (event.header.opcode) {
-                .Text => {
-                    self.processChunks(ctx, handler) catch |err| {
-                        std.debug.print("Process chunks failed: {s}\n", .{err});
-                    };
-                },
-                .Ping, .Pong => {},
-                .Close => {
-                    const body = (try self.client.next()) orelse {
-                        std.debug.print("Websocket close frame - {{}}: no reason provided. Reconnecting...\n", .{});
-                        return error.ConnectionReset;
-                    };
-
-                    const CloseEventCode = enum(u16) {
-                        UnknownError = 4000,
-                        UnknownOpcode = 4001,
-                        DecodeError = 4002,
-                        NotAuthenticated = 4003,
-                        AuthenticationFailed = 4004,
-                        AlreadyAuthenticated = 4005,
-                        InvalidSeq = 4007,
-                        RateLimited = 4008,
-                        SessionTimedOut = 4009,
-                        InvalidShard = 4010,
-                        ShardingRequired = 4011,
-                        InvalidApiVersion = 4012,
-                        InvalidIntents = 4013,
-                        DisallowedIntents = 4014,
-
-                        _,
-
-                        pub fn format(code: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-                            try writer.print("{d}: {s}", .{ @enumToInt(code), @tagName(code) });
-                        }
-                    };
-
-                    const code_num = std.mem.readIntBig(u16, body.chunk.data[0..2]);
-                    const code = @intToEnum(CloseEventCode, code_num);
-                    switch (code) {
-                        _ => {
-                            std.debug.print("Websocket close frame - {d}: unknown code. Reconnecting...\n", .{code_num});
-                            return error.ConnectionReset;
-                        },
-                        .UnknownError, .SessionTimedOut => {
-                            std.debug.print("Websocket close frame - {}. Reconnecting...\n", .{code});
-                            return error.ConnectionReset;
-                        },
-
-                        // Most likely user error
-                        .AuthenticationFailed => return error.AuthenticationFailed,
-                        .AlreadyAuthenticated => return error.AlreadyAuthenticated,
-                        .DecodeError => return error.DecodeError,
-                        .UnknownOpcode => return error.UnknownOpcode,
-                        .RateLimited => return error.WoahNelly,
-                        .DisallowedIntents => return error.DisallowedIntents,
-
-                        // We don't support these yet
-                        .InvalidSeq => unreachable,
-                        .InvalidShard => unreachable,
-                        .ShardingRequired => unreachable,
-                        .InvalidApiVersion => unreachable,
-
-                        // This library fucked up
-                        .NotAuthenticated => unreachable,
-                        .InvalidIntents => unreachable,
-                    }
-                },
-                .Binary => return error.WtfBinary,
-                else => return error.WtfWtf,
-            }
-        }
-
-        std.debug.print("Websocket close frame - {{}}: no reason provided. Reconnecting...\n", .{});
-        return error.ConnectionReset;
-    }
-
-    pub fn processChunks(self: *DiscordWs, ctx: anytype, handler: anytype) !void {
-        const event = (try self.client.next()) orelse return error.NoBody;
-        std.debug.assert(event == .chunk);
-
-        var name_buf: [32]u8 = undefined;
-        var name: ?[]u8 = null;
-        var op: ?Opcode = null;
-
-        var fba = std.io.fixedBufferStream(event.chunk.data);
-        var stream = util.streamJson(fba.reader());
-
-        errdefer |err| {
-            std.debug.print("{}\n", .{stream.debugInfo()});
-        }
-
-        const root = try stream.root();
-
-        while (try root.objectMatchAny(&[_][]const u8{ "t", "s", "op", "d" })) |match| {
-            const swh = util.Swhash(2);
-            switch (swh.match(match.key)) {
-                swh.case("t") => {
-                    name = try match.value.optionalStringBuffer(&name_buf);
-                },
-                swh.case("s") => {
-                    if (try match.value.optionalNumber(u32)) |seq| {
-                        self.heartbeat_seq = seq;
-                    }
-                },
-                swh.case("op") => {
-                    op = try std.meta.intToEnum(Opcode, try match.value.number(u8));
-                },
-                swh.case("d") => {
-                    switch (op orelse return error.DataBeforeOp) {
-                        .dispatch => {
-                            std.debug.print("<< {d} -- {s}\n", .{ self.heartbeat_seq, name });
-                            try handler.handleDispatch(
-                                ctx,
-                                name orelse return error.DispatchWithoutName,
-                                match.value,
-                            );
-                        },
-                        .heartbeat_ack => {
-                            std.debug.print("<< ♥\n", .{});
-                            self.heartbeat_ack = true;
-                        },
-                        else => {},
-                    }
-                    _ = try match.value.finalizeToken();
-                },
-                else => unreachable,
-            }
-        }
-    }
-
-    pub fn sendCommand(self: *DiscordWs, opcode: Opcode, data: anytype) !void {
-        const ssl_tunnel = self.ssl_tunnel orelse return error.NotConnected;
-
-        var buf: [0x1000]u8 = undefined;
-        const msg = try std.fmt.bufPrint(&buf, "{s}", .{
-            format.json(.{
-                .op = @enumToInt(opcode),
-                .d = data,
-            }),
-        });
-
-        const held = self.write_mutex.acquire();
-        defer held.release();
-
-        try self.client.writeHeader(.{ .opcode = .Text, .length = msg.len });
-        try self.client.writeChunk(msg);
-
-        try ssl_tunnel.conn.flush();
-    }
-
-    pub extern "c" fn shutdown(sockfd: std.os.fd_t, how: c_int) c_int;
-
-    fn heartbeatHandler(self: *DiscordWs) void {
-        var heartbeat_interval_ms: u64 = 0;
-        while (true) {
-            if (heartbeat_interval_ms == 0) {
-                switch (self.heartbeat_mailbox.get()) {
-                    .start => |info| {
-                        heartbeat_interval_ms = info.heartbeat_interval_ms;
-                        self.heartbeat_ack = true;
-                    },
-                    .stop => {},
-                    .terminate => return,
-                }
-            } else {
-                // Force fire the heartbeat earlier
-                const timeout_ms = heartbeat_interval_ms - 1000;
-                if (self.heartbeat_mailbox.getWithTimeout(timeout_ms * std.time.ns_per_ms)) |msg| {
-                    switch (msg) {
-                        .start => {},
-                        .stop => heartbeat_interval_ms = 0,
-                        .terminate => return,
-                    }
-                    continue;
-                }
-
-                if (self.heartbeat_ack) {
-                    self.heartbeat_ack = false;
-                    if (self.sendCommand(.heartbeat, self.heartbeat_seq)) |_| {
-                        std.debug.print(">> ♡\n", .{});
-                        continue;
-                    } else |_| {
-                        std.debug.print("Heartbeat send failed. Reconnecting...\n", .{});
-                    }
-                } else {
-                    std.debug.print("Missed heartbeat. Reconnecting...\n", .{});
-                }
-                const SHUT_RDWR = 2;
-                const rc = shutdown(self.ssl_tunnel.?.tcp_conn.handle, SHUT_RDWR);
-                if (rc != 0) {
-                    std.debug.print("Shutdown failed: {d}\n", .{std.c.getErrno(rc)});
-                }
-                heartbeat_interval_ms = 0;
-            }
-        }
-    }
-};
-
-test "" {
-    _ = request;
-    _ = util;
 }
