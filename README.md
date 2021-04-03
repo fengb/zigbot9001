@@ -12,7 +12,6 @@ Discord Bot written in Zig that provides:
 git clone https://github.com/fengb/zigbot9001
 cd zigbot9001
 
-gyro fetch
 gyro build
 ```
 
