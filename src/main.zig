@@ -84,7 +84,7 @@ const Context = struct {
     // TODO move this to instance variable somehow?
     var awaiting_enema = false;
 
-    const AskData = struct { ask: Buffer(0x1000), channel_id: u64 };
+    const AskData = struct { ask: Buffer(0x1000), channel_id: zCord.Snowflake(.channel) };
 
     pub fn init(allocator: *std.mem.Allocator, auth_token: []const u8, ziglib: []const u8, github_auth_token: ?[]const u8) !*Context {
         const result = try allocator.create(Context);
@@ -130,7 +130,7 @@ const Context = struct {
         }
     }
 
-    pub fn askOne(self: *Context, channel_id: u64, ask: []const u8) !void {
+    pub fn askOne(self: *Context, channel_id: zCord.Snowflake(.channel), ask: []const u8) !void {
         const swh = util.Swhash(16);
         switch (swh.match(ask)) {
             swh.case("ping") => {
@@ -476,25 +476,25 @@ const Context = struct {
     const EmbedField = struct { name: []const u8, value: []const u8 };
 
     pub fn sendDiscordMessage(self: Context, args: struct {
-        channel_id: u64,
-        edit_msg_id: u64 = 0,
+        channel_id: zCord.Snowflake(.channel),
+        edit_msg_id: ?zCord.Snowflake(.message) = null,
         title: []const u8,
         color: HexColor = HexColor.black,
         description: []const []const u8 = &.{},
         fields: []const EmbedField = &.{},
         image: ?[]const u8 = null,
-    }) !u64 {
+    }) !zCord.Snowflake(.message) {
         var path_buf: [0x100]u8 = undefined;
 
-        const path = if (args.edit_msg_id == 0)
-            try std.fmt.bufPrint(&path_buf, "/api/v6/channels/{d}/messages", .{args.channel_id})
+        const path = if (args.edit_msg_id) |msg_id|
+            try std.fmt.bufPrint(&path_buf, "/api/v6/channels/{d}/messages/{d}", .{ args.channel_id, msg_id })
         else
-            try std.fmt.bufPrint(&path_buf, "/api/v6/channels/{d}/messages/{d}", .{ args.channel_id, args.edit_msg_id });
+            try std.fmt.bufPrint(&path_buf, "/api/v6/channels/{d}/messages", .{args.channel_id});
 
         var req = try zCord.https.Request.init(.{
             .allocator = self.allocator,
             .host = "discord.com",
-            .method = if (args.edit_msg_id == 0) .POST else .PATCH,
+            .method = if (args.edit_msg_id) |_| .PATCH else .POST,
             .path = path,
         });
         defer req.deinit();
@@ -528,9 +528,7 @@ const Context = struct {
 
             const root = try stream.root();
             if (try root.objectMatchOne("id")) |match| {
-                var buf: [0x100]u8 = undefined;
-                const id_string = try match.value.stringBuffer(&buf);
-                return try std.fmt.parseInt(u64, id_string, 10);
+                return try zCord.Snowflake(.message).consumeJsonElement(match.value);
             }
             return error.IdNotFound;
         } else |err| switch (err) {
@@ -585,14 +583,14 @@ const Context = struct {
         while (try root.objectMatch(enum { stdout, stderr })) |match| switch (match) {
             .stdout => |e_stdout| {
                 result.stdout = e_stdout.stringBuffer(stdout_buf) catch |err| switch (err) {
-                    error.NoSpaceLeft => stdout_buf,
+                    error.StreamTooLong => stdout_buf,
                     else => |e| return e,
                 };
                 _ = try e_stdout.finalizeToken();
             },
             .stderr => |e_stderr| {
                 result.stderr = e_stderr.stringBuffer(stderr_buf) catch |err| switch (err) {
-                    error.NoSpaceLeft => stderr_buf,
+                    error.StreamTooLong => stderr_buf,
                     else => |e| return e,
                 };
                 _ = try e_stderr.finalizeToken();
@@ -722,7 +720,7 @@ pub fn main() !void {
             if (!std.mem.eql(u8, name, "MESSAGE_CREATE")) return;
 
             var ask: Buffer(0x1000) = .{};
-            var channel_id: ?u64 = null;
+            var channel_id: ?zCord.Snowflake(.channel) = null;
 
             while (try data.objectMatch(enum { content, channel_id })) |match| switch (match) {
                 .content => |e_content| {
@@ -730,9 +728,8 @@ pub fn main() !void {
                     _ = try e_content.finalizeToken();
                 },
                 .channel_id => |e_channel_id| {
-                    var buf: [0x100]u8 = undefined;
-                    const channel_string = try e_channel_id.stringBuffer(&buf);
-                    channel_id = try std.fmt.parseInt(u64, channel_string, 10);
+                    channel_id = try zCord.Snowflake(.channel).consumeJsonElement(e_channel_id);
+                    _ = try e_channel_id.finalizeToken();
                 },
             };
 
