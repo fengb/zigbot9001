@@ -1,5 +1,5 @@
 github alexnask analysis-buddy master src/main.zig 36b886f3863486268f93fd003eab2ba4d6487938
-github fengb zCord master src/main.zig ee38b1dee5605bf9e95a60e52a4b465c79e00e61
-pkg default truemedian hzzp 0.0.2
+github fengb zCord master src/main.zig 1e7343d758e59fe65004976375700f78c7a6f6a0
+pkg default truemedian hzzp 0.0.3
 pkg default truemedian wz 0.0.1
 pkg default alexnask iguanaTLS 0.0.1

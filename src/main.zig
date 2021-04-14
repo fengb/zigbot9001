@@ -513,7 +513,7 @@ const Context = struct {
             .fields = args.fields,
             .image = image,
         };
-        try req.printSend("{}", .{
+        const resp_code = try req.sendPrint("{}", .{
             format.json(.{
                 .content = "",
                 .tts = false,
@@ -521,7 +521,7 @@ const Context = struct {
             }),
         });
 
-        if (req.expectSuccessStatus()) |_| {
+        if (resp_code.group() == .success) {
             try req.completeHeaders();
 
             var stream = zCord.json.stream(req.client.reader());
@@ -531,8 +531,8 @@ const Context = struct {
                 return try zCord.Snowflake(.message).consumeJsonElement(match.value);
             }
             return error.IdNotFound;
-        } else |err| switch (err) {
-            error.TooManyRequests => {
+        } else switch (resp_code) {
+            .client_too_many_requests => {
                 try req.completeHeaders();
 
                 var stream = zCord.json.stream(req.client.reader());
@@ -545,7 +545,10 @@ const Context = struct {
                 }
                 return error.TooManyRequests;
             },
-            else => return err,
+            else => {
+                std.debug.print("{} - {s}\n", .{ @enumToInt(resp_code), @tagName(resp_code) });
+                return error.UnknownError;
+            },
         }
     }
 
@@ -560,7 +563,7 @@ const Context = struct {
 
         try req.client.writeHeaderValue("Content-Type", "application/json");
 
-        try req.printSend("{}", .{
+        const resp_code = try req.sendPrint("{}", .{
             format.json(.{
                 .language = "zig",
                 .source = format.concat(src),
@@ -569,7 +572,16 @@ const Context = struct {
             }),
         });
 
-        _ = try req.expectSuccessStatus();
+        if (resp_code.group() != .success) {
+            switch (resp_code) {
+                .client_too_many_requests => return error.TooManyRequests,
+                else => {
+                    std.debug.print("{} - {s}\n", .{ @enumToInt(resp_code), @tagName(resp_code) });
+                    return error.UnknownError;
+                },
+            }
+        }
+
         try req.completeHeaders();
 
         var stream = zCord.json.stream(req.client.reader());
@@ -628,14 +640,17 @@ const Context = struct {
         });
         defer req.deinit();
 
-        try req.client.writeHeaderValue("User-Agent", "zCord/0.0.1");
         try req.client.writeHeaderValue("Accept", "application/json");
         if (self.github_auth_token) |github_auth_token| {
             try req.client.writeHeaderFormat("Authorization", "token {s}", .{github_auth_token});
         }
-        try req.client.finishHeaders();
 
-        _ = try req.expectSuccessStatus();
+        const resp_code = try req.sendEmptyBody();
+        if (resp_code.group() != .success) {
+            std.debug.print("{} - {s}\n", .{ @enumToInt(resp_code), @tagName(resp_code) });
+            return error.UnknownError;
+        }
+
         try req.completeHeaders();
         var stream = zCord.json.stream(req.client.reader());
         const root = try stream.root();
