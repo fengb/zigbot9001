@@ -78,13 +78,13 @@ const Context = struct {
 
     timer: std.time.Timer,
 
-    ask_mailbox: util.Mailbox(AskData),
+    ask_mailbox: util.Mailbox(Ask),
     ask_thread: *std.Thread,
 
     // TODO move this to instance variable somehow?
     var awaiting_enema = false;
 
-    const AskData = struct { ask: Buffer(0x1000), channel_id: zCord.Snowflake(.channel) };
+    const Ask = struct { text: Buffer(0x1000), channel_id: zCord.Snowflake(.channel), source_msg_id: zCord.Snowflake(.message) };
 
     pub fn init(allocator: *std.mem.Allocator, auth_token: []const u8, ziglib: []const u8, github_auth_token: ?[]const u8) !*Context {
         const result = try allocator.create(Context);
@@ -123,19 +123,21 @@ const Context = struct {
 
     pub fn askHandler(self: *Context) void {
         while (true) {
-            const mailbox = self.ask_mailbox.get();
-            self.askOne(mailbox.channel_id, mailbox.ask.slice()) catch |err| {
+            // Force copy
+            var ask = self.ask_mailbox.get();
+            self.askOne(ask) catch |err| {
                 std.debug.print("{s}\n", .{err});
             };
         }
     }
 
-    pub fn askOne(self: *Context, channel_id: zCord.Snowflake(.channel), ask: []const u8) !void {
+    pub fn askOne(self: *Context, ask: Ask) !void {
         const swh = util.Swhash(16);
-        switch (swh.match(ask)) {
+        switch (swh.match(ask.text.slice())) {
             swh.case("ping") => {
                 _ = try self.sendDiscordMessage(.{
-                    .channel_id = channel_id,
+                    .channel_id = ask.channel_id,
+                    .target_msg_id = .{ .reply = ask.source_msg_id },
                     .title = "pong",
                     .description = &.{
                         \\```
@@ -163,7 +165,8 @@ const Context = struct {
 
                 var buf: [0x1000]u8 = undefined;
                 _ = try self.sendDiscordMessage(.{
-                    .channel_id = channel_id,
+                    .channel_id = ask.channel_id,
+                    .target_msg_id = .{ .reply = ask.source_msg_id },
                     .title = "",
                     .description = &.{
                         std.fmt.bufPrint(
@@ -186,7 +189,8 @@ const Context = struct {
             },
             swh.case("zen") => {
                 _ = try self.sendDiscordMessage(.{
-                    .channel_id = channel_id,
+                    .channel_id = ask.channel_id,
+                    .target_msg_id = .{ .reply = ask.source_msg_id },
                     .title = "For Great Justice",
                     .description = &.{
                         \\```
@@ -213,14 +217,16 @@ const Context = struct {
             swh.case("vlang"),
             => {
                 _ = try self.sendDiscordMessage(.{
-                    .channel_id = channel_id,
+                    .channel_id = ask.channel_id,
+                    .target_msg_id = .{ .reply = ask.source_msg_id },
                     .title = "bruh",
                 });
                 return;
             },
             swh.case("u0") => {
                 _ = try self.sendDiscordMessage(.{
-                    .channel_id = channel_id,
+                    .channel_id = ask.channel_id,
+                    .target_msg_id = .{ .reply = ask.source_msg_id },
                     .title = "Zig's billion dollar mistake™",
                     .description = &.{"https://github.com/ziglang/zig/issues/1530#issuecomment-422113755"},
                 });
@@ -228,7 +234,8 @@ const Context = struct {
             },
             swh.case("tater") => {
                 _ = try self.sendDiscordMessage(.{
-                    .channel_id = channel_id,
+                    .channel_id = ask.channel_id,
+                    .target_msg_id = .{ .reply = ask.source_msg_id },
                     .title = "",
                     .image = "https://memegenerator.net/img/instances/41913604.jpg",
                 });
@@ -236,7 +243,8 @@ const Context = struct {
             },
             swh.case("5076"), swh.case("ziglang/zig#5076") => {
                 _ = try self.sendDiscordMessage(.{
-                    .channel_id = channel_id,
+                    .channel_id = ask.channel_id,
+                    .target_msg_id = .{ .reply = ask.source_msg_id },
                     .color = .green,
                     .title = "ziglang/zig — issue #5076",
                     .description = &.{
@@ -248,7 +256,8 @@ const Context = struct {
             },
             swh.case("submodule"), swh.case("submodules") => {
                 _ = try self.sendDiscordMessage(.{
-                    .channel_id = channel_id,
+                    .channel_id = ask.channel_id,
+                    .target_msg_id = .{ .reply = ask.source_msg_id },
                     .title = "git submodules are the devil — _andrewrk_",
                     .description = &.{"https://github.com/ziglang/zig-bootstrap/issues/17#issuecomment-609980730"},
                 });
@@ -256,7 +265,8 @@ const Context = struct {
             },
             swh.case("2.718"), swh.case("2.71828") => {
                 _ = try self.sendDiscordMessage(.{
-                    .channel_id = channel_id,
+                    .channel_id = ask.channel_id,
+                    .target_msg_id = .{ .reply = ask.source_msg_id },
                     .title = "",
                     .image = "https://camo.githubusercontent.com/7f0d955df2205a170bf1582105c319ec6b00ec5c/68747470733a2f2f692e696d67666c69702e636f6d2f34646d7978702e6a7067",
                 });
@@ -264,7 +274,8 @@ const Context = struct {
             },
             swh.case("bruh") => {
                 _ = try self.sendDiscordMessage(.{
-                    .channel_id = channel_id,
+                    .channel_id = ask.channel_id,
+                    .target_msg_id = .{ .reply = ask.source_msg_id },
                     .title = "",
                     .image = "https://user-images.githubusercontent.com/106511/86198112-6718ba00-bb46-11ea-92fd-d006b462c5b1.jpg",
                 });
@@ -272,7 +283,8 @@ const Context = struct {
             },
             swh.case("dab") => {
                 _ = try self.sendDiscordMessage(.{
-                    .channel_id = channel_id,
+                    .channel_id = ask.channel_id,
+                    .target_msg_id = .{ .reply = ask.source_msg_id },
                     .title = "I promised I would dab and say “bruh” — _andrewrk_",
                     .description = &.{"https://vimeo.com/492676992"},
                     .image = "https://i.vimeocdn.com/video/1018725604.jpg?mw=700&mh=1243&q=70",
@@ -282,11 +294,12 @@ const Context = struct {
             else => {},
         }
 
-        if (std.mem.startsWith(u8, ask, "run")) {
-            const run = self.parseRun(ask) catch |e| switch (e) {
+        if (std.mem.startsWith(u8, ask.text.slice(), "run")) {
+            const run = self.parseRun(ask.text.slice()) catch |e| switch (e) {
                 error.InvalidInput => {
                     _ = try self.sendDiscordMessage(.{
-                        .channel_id = channel_id,
+                        .channel_id = ask.channel_id,
+                        .target_msg_id = .{ .reply = ask.source_msg_id },
                         .title = "Error - expected format:",
                         .description = &.{
                             \\%%run \`\`\`
@@ -302,7 +315,8 @@ const Context = struct {
             const has_import_std = std.mem.indexOf(u8, run, "@import(\"std\")") != null;
 
             const msg_id = try self.sendDiscordMessage(.{
-                .channel_id = channel_id,
+                .channel_id = ask.channel_id,
+                .target_msg_id = .{ .reply = ask.source_msg_id },
                 .title = "*Run pending...*",
                 .description = &.{},
             });
@@ -328,8 +342,8 @@ const Context = struct {
                 };
 
                 _ = try self.sendDiscordMessage(.{
-                    .channel_id = channel_id,
-                    .edit_msg_id = msg_id,
+                    .channel_id = ask.channel_id,
+                    .target_msg_id = .{ .edit = msg_id },
                     .title = "Run error",
                     .description = &.{output},
                 });
@@ -350,8 +364,8 @@ const Context = struct {
             }
 
             _ = try self.sendDiscordMessage(.{
-                .channel_id = channel_id,
-                .edit_msg_id = msg_id,
+                .channel_id = ask.channel_id,
+                .target_msg_id = .{ .edit = msg_id },
                 .title = "Run Results",
                 .description = description,
                 .fields = fields,
@@ -359,7 +373,7 @@ const Context = struct {
             return;
         }
 
-        if (try self.maybeGithubIssue(ask)) |issue| {
+        if (try self.maybeGithubIssue(ask.text.slice())) |issue| {
             const is_pull_request = std.mem.indexOf(u8, issue.url.slice(), "/pull/") != null;
             const label = if (is_pull_request) "pull" else "issue";
 
@@ -370,7 +384,8 @@ const Context = struct {
                 issue.number,
             });
             _ = try self.sendDiscordMessage(.{
-                .channel_id = channel_id,
+                .channel_id = ask.channel_id,
+                .target_msg_id = .{ .reply = ask.source_msg_id },
                 .title = title,
                 .description = &.{
                     "[",
@@ -389,10 +404,11 @@ const Context = struct {
                 try analBuddy.reloadCached(&arena, self.prepared_anal.store.allocator, &self.prepared_anal);
                 awaiting_enema = false;
             }
-            if (try analBuddy.analyse(&arena, &self.prepared_anal, ask)) |match| {
+            if (try analBuddy.analyse(&arena, &self.prepared_anal, ask.text.slice())) |match| {
                 _ = try self.sendDiscordMessage(.{
-                    .channel_id = channel_id,
-                    .title = ask,
+                    .channel_id = ask.channel_id,
+                    .target_msg_id = .{ .reply = ask.source_msg_id },
+                    .title = ask.text.slice(),
                     .description = &.{std.mem.trim(u8, match, " \t\r\n")},
                     .color = .red,
                 });
@@ -477,7 +493,10 @@ const Context = struct {
 
     pub fn sendDiscordMessage(self: Context, args: struct {
         channel_id: zCord.Snowflake(.channel),
-        edit_msg_id: ?zCord.Snowflake(.message) = null,
+        target_msg_id: union(enum) {
+            edit: zCord.Snowflake(.message),
+            reply: zCord.Snowflake(.message),
+        },
         title: []const u8,
         color: HexColor = HexColor.black,
         description: []const []const u8 = &.{},
@@ -486,15 +505,18 @@ const Context = struct {
     }) !zCord.Snowflake(.message) {
         var path_buf: [0x100]u8 = undefined;
 
-        const path = if (args.edit_msg_id) |msg_id|
-            try std.fmt.bufPrint(&path_buf, "/api/v6/channels/{d}/messages/{d}", .{ args.channel_id, msg_id })
-        else
-            try std.fmt.bufPrint(&path_buf, "/api/v6/channels/{d}/messages", .{args.channel_id});
+        const path = switch (args.target_msg_id) {
+            .edit => |msg_id| try std.fmt.bufPrint(&path_buf, "/api/v6/channels/{d}/messages/{d}", .{ args.channel_id, msg_id }),
+            .reply => try std.fmt.bufPrint(&path_buf, "/api/v6/channels/{d}/messages", .{args.channel_id}),
+        };
 
         var req = try zCord.https.Request.init(.{
             .allocator = self.allocator,
             .host = "discord.com",
-            .method = if (args.edit_msg_id) |_| .PATCH else .POST,
+            .method = switch (args.target_msg_id) {
+                .edit => .PATCH,
+                .reply => .POST,
+            },
             .path = path,
         });
         defer req.deinit();
@@ -505,6 +527,10 @@ const Context = struct {
 
         // Zig has difficulty resolving these peer types
         const image: ?struct { url: []const u8 } = if (args.image) |url| .{ .url = url } else null;
+        const message_reference: ?struct { message_id: zCord.Snowflake(.message) } = switch (args.target_msg_id) {
+            .reply => |msg_id| .{ .message_id = msg_id },
+            else => null,
+        };
 
         const embed = .{
             .title = args.title,
@@ -513,11 +539,13 @@ const Context = struct {
             .fields = args.fields,
             .image = image,
         };
+
         const resp_code = try req.sendPrint("{}", .{
             format.json(.{
                 .content = "",
                 .tts = false,
                 .embed = embed,
+                .message_reference = message_reference,
             }),
         });
 
@@ -547,7 +575,7 @@ const Context = struct {
             },
             else => {
                 std.debug.print("{} - {s}\n", .{ @enumToInt(resp_code), @tagName(resp_code) });
-                return error.UnknownError;
+                return error.UnknownRequestError;
             },
         }
     }
@@ -577,7 +605,7 @@ const Context = struct {
                 .client_too_many_requests => return error.TooManyRequests,
                 else => {
                     std.debug.print("{} - {s}\n", .{ @enumToInt(resp_code), @tagName(resp_code) });
-                    return error.UnknownError;
+                    return error.UnknownRequestError;
                 },
             }
         }
@@ -648,7 +676,7 @@ const Context = struct {
         const resp_code = try req.sendEmptyBody();
         if (resp_code.group() != .success) {
             std.debug.print("{} - {s}\n", .{ @enumToInt(resp_code), @tagName(resp_code) });
-            return error.UnknownError;
+            return error.UnknownRequestError;
         }
 
         try req.completeHeaders();
@@ -734,12 +762,17 @@ pub fn main() !void {
         pub fn handleDispatch(client: *zCord.Client, name: []const u8, data: anytype) !void {
             if (!std.mem.eql(u8, name, "MESSAGE_CREATE")) return;
 
-            var ask: Buffer(0x1000) = .{};
+            var text: Buffer(0x1000) = .{};
             var channel_id: ?zCord.Snowflake(.channel) = null;
+            var source_msg_id: ?zCord.Snowflake(.message) = null;
 
-            while (try data.objectMatch(enum { content, channel_id })) |match| switch (match) {
+            while (try data.objectMatch(enum { id, content, channel_id })) |match| switch (match) {
+                .id => |e_id| {
+                    source_msg_id = try zCord.Snowflake(.message).consumeJsonElement(e_id);
+                    _ = try e_id.finalizeToken();
+                },
                 .content => |e_content| {
-                    ask = try findAsk(try e_content.stringReader());
+                    text = try findAsk(try e_content.stringReader());
                     _ = try e_content.finalizeToken();
                 },
                 .channel_id => |e_channel_id| {
@@ -748,9 +781,9 @@ pub fn main() !void {
                 },
             };
 
-            if (ask.len > 0 and channel_id != null) {
-                std.debug.print(">> %%{s}\n", .{ask.slice()});
-                client.ctx(Context).ask_mailbox.putOverwrite(.{ .channel_id = channel_id.?, .ask = ask });
+            if (text.len > 0 and channel_id != null and source_msg_id != null) {
+                std.debug.print(">> %%{s}\n", .{text.slice()});
+                client.ctx(Context).ask_mailbox.putOverwrite(.{ .channel_id = channel_id.?, .source_msg_id = source_msg_id.?, .text = text });
             }
         }
 
