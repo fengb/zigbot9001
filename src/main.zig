@@ -745,7 +745,7 @@ pub fn main() !void {
         .allocator = context.allocator,
         .auth_token = context.auth_token,
         .context = context,
-        .intents = .{ .guild_messages = true },
+        .intents = .{ .guild_messages = true, .direct_messages = true },
         .presence = .{
             .status = .online,
             .activities = &.{
