@@ -79,7 +79,7 @@ const Context = struct {
     timer: std.time.Timer,
 
     ask_mailbox: util.Mailbox(Ask),
-    ask_thread: *std.Thread,
+    ask_thread: std.Thread,
 
     // TODO move this to instance variable somehow?
     var awaiting_enema = false;
@@ -100,7 +100,7 @@ const Context = struct {
         result.timer = try std.time.Timer.start();
 
         result.ask_mailbox = .{};
-        result.ask_thread = try std.Thread.spawn(askHandler, result);
+        result.ask_thread = try std.Thread.spawn(.{}, askHandler, .{result});
 
         std.os.sigaction(
             std.os.SIGWINCH,
@@ -118,6 +118,7 @@ const Context = struct {
     }
 
     fn winchHandler(signum: c_int) callconv(.C) void {
+        _ = signum;
         awaiting_enema = true;
     }
 
@@ -427,6 +428,7 @@ const Context = struct {
     }
 
     fn parseRun(self: Context, ask: []const u8) ![]const u8 {
+        _ = self;
         // we impliment a rudimentary tokenizer
         var b_num: u8 = 0;
         var start_idx: usize = 0;
@@ -477,7 +479,7 @@ const Context = struct {
     }
 
     fn maybeGithubIssue(self: Context, ask: []const u8) !?GithubIssue {
-        if (std.fmt.parseInt(u32, ask, 10)) |issue| {
+        if (std.fmt.parseInt(u32, ask, 10)) |_| {
             return try self.requestGithubIssue("ziglang/zig", ask);
         } else |_| {}
 
@@ -713,6 +715,7 @@ pub fn main() !void {
             .handler = .{
                 .handler = struct {
                     fn handler(signum: c_int) callconv(.C) void {
+                        _ = signum;
                         const err = std.os.execveZ(
                             std.os.argv[0],
                             @ptrCast([*:null]?[*:0]u8, std.os.argv.ptr),

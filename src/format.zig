@@ -5,6 +5,9 @@ pub fn Json(comptime T: type) type {
         data: T,
 
         pub fn format(self: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+            _ = fmt;
+            _ = options;
+
             // TODO: convert stringify options
             return std.json.stringify(self.data, .{ .string = .{ .String = .{} } }, writer);
         }
@@ -22,6 +25,9 @@ const Time = struct {
     millis: i64,
 
     pub fn format(self: Time, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+
         const hours = @intCast(u16, @divFloor(self.millis, std.time.ms_per_hour));
         const mins = @intCast(u8, @mod(@divFloor(self.millis, std.time.ms_per_min), 60));
         const secs = @intCast(u8, @mod(@divFloor(self.millis, std.time.ms_per_s), 60));
@@ -37,12 +43,17 @@ const Concat = struct {
     segments: []const []const u8,
 
     pub fn format(self: Concat, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+
         for (self.segments) |segment| {
             try writer.writeAll(segment);
         }
     }
 
     pub fn jsonStringify(self: Concat, options: std.json.StringifyOptions, writer: anytype) !void {
+        _ = options;
+
         try writer.writeAll("\"");
         for (self.segments) |segment| {
             try writeJsonSegment(writer, segment);

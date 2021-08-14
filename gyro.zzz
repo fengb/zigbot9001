@@ -2,7 +2,7 @@ deps:
   analysis-buddy:
     src:
       github:
-        user: alexnask
+        user: fengb
         repo: analysis-buddy
         ref: master
   zCord:
