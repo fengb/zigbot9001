@@ -351,24 +351,22 @@ const Context = struct {
                 return e;
             };
 
-            var description: []const []const u8 = &.{};
             const all_fields = [_]EmbedField{
                 .{ .name = "stdout", .value = wrapString(ran.stdout, "```") },
                 .{ .name = "stderr", .value = wrapString(ran.stderr, "```") },
             };
-            var fields: []const EmbedField = &.{};
-            switch (b(.{ ran.stdout.len > 0, ran.stderr.len > 0 })) {
-                b(.{ false, false }) => description = &.{"***No Output***"},
-                b(.{ true, false }) => fields = all_fields[0..1],
-                b(.{ false, true }) => fields = all_fields[1..],
-                b(.{ true, true }) => fields = all_fields[0..],
-            }
+            const fields = switch (b(.{ ran.stdout.len > 0, ran.stderr.len > 0 })) {
+                b(.{ false, false }) => &[0]EmbedField{},
+                b(.{ true, false }) => all_fields[0..1],
+                b(.{ false, true }) => all_fields[1..],
+                b(.{ true, true }) => all_fields[0..],
+            };
 
             _ = try self.sendDiscordMessage(.{
                 .channel_id = ask.channel_id,
                 .target_msg_id = .{ .edit = msg_id },
                 .title = "Run Results",
-                .description = description,
+                .description = if (fields.len == 0) &[_][]const u8{"***No Output***"} else &.{},
                 .fields = fields,
             });
             return;
