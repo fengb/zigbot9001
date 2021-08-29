@@ -134,7 +134,8 @@ const Context = struct {
 
     pub fn askOne(self: *Context, ask: Ask) !void {
         const swh = util.Swhash(16);
-        switch (swh.match(ask.text.slice())) {
+        const ask_text = ask.text.slice();
+        switch (swh.match(ask_text)) {
             swh.case("ping") => {
                 _ = try self.sendDiscordMessage(.{
                     .channel_id = ask.channel_id,
@@ -295,8 +296,8 @@ const Context = struct {
             else => {},
         }
 
-        if (std.mem.startsWith(u8, ask.text.slice(), "run")) {
-            const run = self.parseRun(ask.text.slice()) catch |e| switch (e) {
+        if (std.mem.startsWith(u8, ask_text, "run")) {
+            const run = self.parseRun(ask_text) catch |e| switch (e) {
                 error.InvalidInput => {
                     _ = try self.sendDiscordMessage(.{
                         .channel_id = ask.channel_id,
@@ -372,13 +373,18 @@ const Context = struct {
             return;
         }
 
-        if (try self.maybeGithubIssue(ask.text.slice())) |issue| {
-            const is_pull_request = std.mem.indexOf(u8, issue.url.slice(), "/pull/") != null;
+        if (try self.maybeGithubIssue(ask_text)) |issue| {
+            const is_pull_request = std.mem.indexOf(u8, issue.html_url.constSlice(), "/pull/") != null;
             const label = if (is_pull_request) "pull" else "issue";
+
+            const repo = if (std.mem.indexOfScalar(u8, ask_text, '#')) |pound|
+                ask_text[0..pound]
+            else
+                "ziglang/zig";
 
             var title_buf: [0x1000]u8 = undefined;
             const title = try std.fmt.bufPrint(&title_buf, "{s} — {s} #{d}", .{
-                issue.repo.slice(),
+                repo,
                 label,
                 issue.number,
             });
@@ -388,9 +394,9 @@ const Context = struct {
                 .title = title,
                 .description = &.{
                     "[",
-                    issue.title.slice(),
+                    issue.title.constSlice(),
                     "](",
-                    issue.url.slice(),
+                    issue.html_url.constSlice(),
                     ")",
                 },
                 .color = if (is_pull_request) HexColor.blue else HexColor.green,
@@ -403,11 +409,11 @@ const Context = struct {
                 try analBuddy.reloadCached(&arena, self.prepared_anal.store.allocator, &self.prepared_anal);
                 awaiting_enema = false;
             }
-            if (try analBuddy.analyse(&arena, &self.prepared_anal, ask.text.slice())) |match| {
+            if (try analBuddy.analyse(&arena, &self.prepared_anal, ask_text)) |match| {
                 _ = try self.sendDiscordMessage(.{
                     .channel_id = ask.channel_id,
                     .target_msg_id = .{ .reply = ask.source_msg_id },
-                    .title = ask.text.slice(),
+                    .title = ask_text,
                     .description = &.{std.mem.trim(u8, match, " \t\r\n")},
                     .color = .red,
                 });
@@ -639,7 +645,7 @@ const Context = struct {
         return result;
     }
 
-    const GithubIssue = struct { repo: Buffer(0x100), number: u32, title: Buffer(0x100), url: Buffer(0x100) };
+    const GithubIssue = struct { number: u32, title: std.BoundedArray(u8, 0x100), html_url: std.BoundedArray(u8, 0x100) };
     const RunResult = struct {
         stdout: []u8,
         stderr: []u8,
@@ -680,29 +686,10 @@ const Context = struct {
         }
 
         try req.completeHeaders();
+
         var stream = zCord.json.stream(req.client.reader());
         const root = try stream.root();
-
-        var result = GithubIssue{ .repo = Buffer(0x100).initFrom(repo), .number = 0, .title = .{}, .url = .{} };
-        while (try root.objectMatch(enum { number, title, html_url })) |match| switch (match) {
-            .number => |e_number| {
-                result.number = try e_number.number(u32);
-            },
-            .html_url => |e_html_url| {
-                const slice = try e_html_url.stringBuffer(&result.url.data);
-                result.url.len = slice.len;
-            },
-            .title => |e_title| {
-                const slice = try e_title.stringBuffer(&result.title.data);
-                result.title.len = slice.len;
-            },
-        };
-
-        if (result.number > 0 and result.title.len > 0 and result.url.len > 0) {
-            return result;
-        }
-
-        return error.FieldNotFound;
+        return try zCord.json.path.match(root, GithubIssue);
     }
 };
 
@@ -763,32 +750,19 @@ pub fn main() !void {
         pub fn handleDispatch(client: *zCord.Client, name: []const u8, data: anytype) !void {
             if (!std.mem.eql(u8, name, "MESSAGE_CREATE")) return;
 
-            var text: Buffer(0x1000) = .{};
-            var channel_id: ?zCord.Snowflake(.channel) = null;
-            var source_msg_id: ?zCord.Snowflake(.message) = null;
+            const match = try zCord.json.path.match(data, struct {
+                @"id": zCord.Snowflake(.message),
+                @"channel_id": zCord.Snowflake(.channel),
+                @"content": zCord.json.path.Wrap(Buffer(0x1000), findAsk),
+            });
 
-            while (try data.objectMatch(enum { id, content, channel_id })) |match| switch (match) {
-                .id => |e_id| {
-                    source_msg_id = try zCord.Snowflake(.message).consumeJsonElement(e_id);
-                    _ = try e_id.finalizeToken();
-                },
-                .content => |e_content| {
-                    text = try findAsk(try e_content.stringReader());
-                    _ = try e_content.finalizeToken();
-                },
-                .channel_id => |e_channel_id| {
-                    channel_id = try zCord.Snowflake(.channel).consumeJsonElement(e_channel_id);
-                    _ = try e_channel_id.finalizeToken();
-                },
-            };
-
-            if (text.len > 0 and channel_id != null and source_msg_id != null) {
-                std.debug.print(">> %%{s}\n", .{text.slice()});
-                client.ctx(Context).ask_mailbox.putOverwrite(.{ .channel_id = channel_id.?, .source_msg_id = source_msg_id.?, .text = text });
+            if (match.@"content".data.len > 0) {
+                std.debug.print(">> %%{s}\n", .{match.@"content".data.slice()});
+                client.ctx(Context).ask_mailbox.putOverwrite(.{ .channel_id = match.@"channel_id", .source_msg_id = match.@"id", .text = match.@"content".data });
             }
         }
 
-        fn findAsk(reader: anytype) !Buffer(0x1000) {
+        fn findAsk(elem: anytype) !Buffer(0x1000) {
             const State = enum {
                 no_match,
                 percent,
@@ -797,6 +771,8 @@ pub fn main() !void {
             };
             var state = State.no_match;
             var buffer: Buffer(0x1000) = .{};
+
+            var reader = try elem.stringReader();
 
             while (reader.readByte()) |c| {
                 switch (state) {
