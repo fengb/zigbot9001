@@ -71,7 +71,7 @@ fn Buffer(comptime max_len: usize) type {
 
 const Context = struct {
     allocator: *std.mem.Allocator,
-    auth_token: []const u8,
+    zCord_client: *zCord.Client,
     github_auth_token: ?[]const u8,
     prng: std.rand.DefaultPrng,
     prepared_anal: analBuddy.PrepareResult,
@@ -86,12 +86,12 @@ const Context = struct {
 
     const Ask = struct { text: Buffer(0x1000), channel_id: zCord.Snowflake(.channel), source_msg_id: zCord.Snowflake(.message) };
 
-    pub fn init(allocator: *std.mem.Allocator, auth_token: []const u8, ziglib: []const u8, github_auth_token: ?[]const u8) !*Context {
+    pub fn create(allocator: *std.mem.Allocator, zCord_client: *zCord.Client, ziglib: []const u8, github_auth_token: ?[]const u8) !*Context {
         const result = try allocator.create(Context);
         errdefer allocator.destroy(result);
 
         result.allocator = allocator;
-        result.auth_token = auth_token;
+        result.zCord_client = zCord_client;
         result.github_auth_token = github_auth_token;
         result.prng = std.rand.DefaultPrng.init(@bitCast(u64, std.time.timestamp()));
         result.prepared_anal = try analBuddy.prepare(allocator, ziglib);
@@ -511,25 +511,14 @@ const Context = struct {
     }) !zCord.Snowflake(.message) {
         var path_buf: [0x100]u8 = undefined;
 
+        const method: zCord.https.Request.Method = switch (args.target_msg_id) {
+            .edit => .PATCH,
+            .reply => .POST,
+        };
         const path = switch (args.target_msg_id) {
             .edit => |msg_id| try std.fmt.bufPrint(&path_buf, "/api/v6/channels/{d}/messages/{d}", .{ args.channel_id, msg_id }),
             .reply => try std.fmt.bufPrint(&path_buf, "/api/v6/channels/{d}/messages", .{args.channel_id}),
         };
-
-        var req = try zCord.https.Request.init(.{
-            .allocator = self.allocator,
-            .host = "discord.com",
-            .method = switch (args.target_msg_id) {
-                .edit => .PATCH,
-                .reply => .POST,
-            },
-            .path = path,
-        });
-        defer req.deinit();
-
-        try req.client.writeHeaderValue("Accept", "application/json");
-        try req.client.writeHeaderValue("Content-Type", "application/json");
-        try req.client.writeHeaderValue("Authorization", self.auth_token);
 
         // Zig has difficulty resolving these peer types
         const image: ?struct { url: []const u8 } = if (args.image) |url| .{ .url = url } else null;
@@ -546,15 +535,15 @@ const Context = struct {
             .image = image,
         };
 
-        const resp_code = try req.sendPrint("{}", .{
-            format.json(.{
-                .content = "",
-                .tts = false,
-                .embed = embed,
-                .message_reference = message_reference,
-            }),
+        var req = try self.zCord_client.sendRequest(self.allocator, method, path, .{
+            .content = "",
+            .tts = false,
+            .embed = embed,
+            .message_reference = message_reference,
         });
+        defer req.deinit();
 
+        const resp_code = req.response_code.?;
         if (resp_code.group() == .success) {
             try req.completeHeaders();
 
@@ -722,17 +711,9 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
     var auth_buf: [0x100]u8 = undefined;
-    const context = try Context.init(
-        &gpa.allocator,
-        try std.fmt.bufPrint(&auth_buf, "Bot {s}", .{std.os.getenv("DISCORD_AUTH") orelse return error.AuthNotFound}),
-        std.os.getenv("ZIGLIB") orelse return error.ZiglibNotFound,
-        std.os.getenv("GITHUB_AUTH"),
-    );
-
-    const cli = try zCord.Client.create(.{
-        .allocator = context.allocator,
-        .auth_token = context.auth_token,
-        .context = context,
+    const client = try zCord.Client.create(.{
+        .allocator = &gpa.allocator,
+        .auth_token = try std.fmt.bufPrint(&auth_buf, "Bot {s}", .{std.os.getenv("DISCORD_AUTH") orelse return error.AuthNotFound}),
         .intents = .{ .guild_messages = true, .direct_messages = true },
         .presence = .{
             .status = .online,
@@ -744,10 +725,17 @@ pub fn main() !void {
             },
         },
     });
-    defer cli.destroy();
+    defer client.destroy();
 
-    cli.ws(struct {
-        pub fn handleDispatch(client: *zCord.Client, name: []const u8, data: anytype) !void {
+    const context = try Context.create(
+        &gpa.allocator,
+        client,
+        std.os.getenv("ZIGLIB") orelse return error.ZiglibNotFound,
+        std.os.getenv("GITHUB_AUTH"),
+    );
+
+    client.ws(context, struct {
+        pub fn handleDispatch(ctx: *Context, name: []const u8, data: zCord.JsonElement) !void {
             if (!std.mem.eql(u8, name, "MESSAGE_CREATE")) return;
 
             const match = try zCord.json.path.match(data, struct {
@@ -758,11 +746,11 @@ pub fn main() !void {
 
             if (match.@"content".data.len > 0) {
                 std.debug.print(">> %%{s}\n", .{match.@"content".data.slice()});
-                client.ctx(Context).ask_mailbox.putOverwrite(.{ .channel_id = match.@"channel_id", .source_msg_id = match.@"id", .text = match.@"content".data });
+                ctx.ask_mailbox.putOverwrite(.{ .channel_id = match.@"channel_id", .source_msg_id = match.@"id", .text = match.@"content".data });
             }
         }
 
-        fn findAsk(elem: anytype) !Buffer(0x1000) {
+        fn findAsk(elem: zCord.JsonElement) !Buffer(0x1000) {
             const State = enum {
                 no_match,
                 percent,
