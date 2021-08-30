@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: mattnite/setup-gyro@v1.0.1
+      - uses: mattnite/setup-gyro@v1
       - uses: goto-bus-stop/setup-zig@v1
         with:
           version: master
