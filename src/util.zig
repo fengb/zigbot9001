@@ -95,3 +95,25 @@ pub fn Mailbox(comptime T: type) type {
         }
     };
 }
+
+pub fn mapSigaction(comptime T: type) void {
+    inline for (std.meta.declarations(T)) |decl| {
+        std.os.sigaction(
+            @field(std.os, decl.name),
+            &std.os.Sigaction{
+                .handler = .{
+                    .handler = struct {
+                        fn handler(signum: c_int) callconv(.C) void {
+                            _ = signum;
+                            const func = @field(T, decl.name);
+                            func();
+                        }
+                    }.handler,
+                },
+                .mask = std.os.empty_sigset,
+                .flags = 0,
+            },
+            null,
+        );
+    }
+}

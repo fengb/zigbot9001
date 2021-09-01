@@ -2,6 +2,7 @@ const std = @import("std");
 const zCord = @import("zCord");
 
 const WorkContext = @import("WorkContext.zig");
+const util = @import("util.zig");
 
 const auto_restart = true;
 //const auto_restart = std.builtin.mode == .Debug;
@@ -30,45 +31,21 @@ const RestartHandler = struct {
 };
 
 pub fn main() !void {
-    std.os.sigaction(
-        std.os.SIGWINCH,
-        &std.os.Sigaction{
-            .handler = .{
-                .handler = struct {
-                    fn handler(signum: c_int) callconv(.C) void {
-                        _ = signum;
-                        WorkContext.reload();
-                    }
-                }.handler,
-            },
-            .mask = std.os.empty_sigset,
-            .flags = 0,
-        },
-        null,
-    );
+    util.mapSigaction(struct {
+        pub fn SIGWINCH() void {
+            WorkContext.reload();
+        }
 
-    std.os.sigaction(
-        std.os.SIGUSR1,
-        &std.os.Sigaction{
-            .handler = .{
-                .handler = struct {
-                    fn handler(signum: c_int) callconv(.C) void {
-                        _ = signum;
-                        const err = std.os.execveZ(
-                            std.os.argv[0],
-                            @ptrCast([*:null]?[*:0]u8, std.os.argv.ptr),
-                            @ptrCast([*:null]?[*:0]u8, std.os.environ.ptr),
-                        );
+        pub fn SIGUSR1() void {
+            const err = std.os.execveZ(
+                std.os.argv[0],
+                @ptrCast([*:null]?[*:0]u8, std.os.argv.ptr),
+                @ptrCast([*:null]?[*:0]u8, std.os.environ.ptr),
+            );
 
-                        std.debug.print("{s}\n", .{@errorName(err)});
-                    }
-                }.handler,
-            },
-            .mask = std.os.empty_sigset,
-            .flags = 0,
-        },
-        null,
-    );
+            std.debug.print("{s}\n", .{@errorName(err)});
+        }
+    });
 
     try zCord.root_ca.preload(std.heap.page_allocator);
 
