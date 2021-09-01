@@ -79,19 +79,37 @@ pub fn main() !void {
         pub fn handleDispatch(ctx: *WorkContext, name: []const u8, data: zCord.JsonElement) !void {
             if (!std.mem.eql(u8, name, "MESSAGE_CREATE")) return;
 
-            const match = try zCord.json.path.match(data, struct {
-                @"id": zCord.Snowflake(.message),
-                @"channel_id": zCord.Snowflake(.channel),
-                @"content": zCord.json.path.Wrap(std.BoundedArray(u8, 0x1000), findAsk),
-            });
+            var channel_id: ?zCord.Snowflake(.channel) = null;
+            var source_msg_id: ?zCord.Snowflake(.message) = null;
+            var texts = std.BoundedArray(std.BoundedArray(u8, 0x1000), 8).init(0) catch unreachable;
 
-            if (match.@"content".data.len > 0) {
-                std.debug.print(">> %%{s}\n", .{match.@"content".data.constSlice()});
-                ctx.ask_mailbox.putOverwrite(.{ .channel_id = match.@"channel_id", .source_msg_id = match.@"id", .text = match.@"content".data });
+            while (try data.objectMatch(enum { id, content, channel_id })) |match| switch (match) {
+                .id => |e_id| {
+                    source_msg_id = try zCord.Snowflake(.message).consumeJsonElement(e_id);
+                    _ = try e_id.finalizeToken();
+                },
+                .channel_id => |e_channel_id| {
+                    channel_id = try zCord.Snowflake(.channel).consumeJsonElement(e_channel_id);
+                    _ = try e_channel_id.finalizeToken();
+                },
+                .content => |e_content| {
+                    const reader = try e_content.stringReader();
+                    while (try findAsk(reader)) |text| {
+                        texts.append(text) catch break;
+                    }
+                    _ = try e_content.finalizeToken();
+                },
+            };
+
+            if (channel_id != null and source_msg_id != null) {
+                for (texts.constSlice()) |text| {
+                    std.debug.print(">> %%{s}\n", .{text.constSlice()});
+                    ctx.ask_mailbox.putOverwrite(.{ .channel_id = channel_id.?, .source_msg_id = source_msg_id.?, .text = text });
+                }
             }
         }
 
-        fn findAsk(elem: zCord.JsonElement) !std.BoundedArray(u8, 0x1000) {
+        fn findAsk(reader: anytype) !?std.BoundedArray(u8, 0x1000) {
             const State = enum {
                 no_match,
                 percent,
@@ -100,8 +118,6 @@ pub fn main() !void {
             };
             var state = State.no_match;
             var array = std.BoundedArray(u8, 0x1000).init(0) catch unreachable;
-
-            var reader = try elem.stringReader();
 
             while (reader.readByte()) |c| {
                 switch (state) {
@@ -115,7 +131,7 @@ pub fn main() !void {
                     },
                     .ready => {
                         switch (c) {
-                            ' ', ',', '\n', '\t', '(', ')', '!', '?', '[', ']', '{', '}' => {
+                            ' ', ',', '\n', '\t', ':', ';', '(', ')', '!', '?', '[', ']', '{', '}' => {
                                 if (std.mem.eql(u8, array.constSlice(), "run")) {
                                     state = .endless;
                                     try array.append(c);
@@ -137,7 +153,7 @@ pub fn main() !void {
             if (array.len > 0 and array.get(array.len - 1) == '.') {
                 _ = array.pop();
             }
-            return array;
+            return if (array.len == 0) null else array;
         }
     }) catch |err| switch (err) {
         error.AuthenticationFailed => |e| return e,
