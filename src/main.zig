@@ -51,6 +51,8 @@ pub fn main() !void {
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
+    util.PoolString.prefill();
+
     var auth_buf: [0x100]u8 = undefined;
     const client = try zCord.Client.create(.{
         .allocator = &gpa.allocator,
@@ -81,7 +83,13 @@ pub fn main() !void {
 
             var channel_id: ?zCord.Snowflake(.channel) = null;
             var source_msg_id: ?zCord.Snowflake(.message) = null;
-            var texts = std.BoundedArray(std.BoundedArray(u8, 0x1000), 8).init(0) catch unreachable;
+
+            // If "channel_id" was guaranteed to exist before "content", we wouldn't need this :(
+            var base: ?*util.PoolString = null;
+            defer while (base) |text| {
+                base = text.next;
+                text.destroy();
+            };
 
             while (try data.objectMatch(enum { id, content, channel_id })) |match| switch (match) {
                 .id => |e_id| {
@@ -95,21 +103,25 @@ pub fn main() !void {
                 .content => |e_content| {
                     const reader = try e_content.stringReader();
                     while (try findAsk(reader)) |text| {
-                        texts.append(text) catch break;
+                        text.next = base;
+                        base = text;
                     }
                     _ = try e_content.finalizeToken();
                 },
             };
 
             if (channel_id != null and source_msg_id != null) {
-                for (texts.constSlice()) |text| {
-                    std.debug.print(">> %%{s}\n", .{text.constSlice()});
-                    ctx.ask_mailbox.putOverwrite(.{ .channel_id = channel_id.?, .source_msg_id = source_msg_id.?, .text = text });
+                while (base) |text| {
+                    base = text.next;
+                    std.debug.print(">> %%{s}\n", .{text.array.slice()});
+                    if (ctx.ask_mailbox.putOverwrite(.{ .channel_id = channel_id.?, .source_msg_id = source_msg_id.?, .text = text })) |existing| {
+                        existing.text.destroy();
+                    }
                 }
             }
         }
 
-        fn findAsk(reader: anytype) !?std.BoundedArray(u8, 0x1000) {
+        fn findAsk(reader: anytype) !?*util.PoolString {
             const State = enum {
                 no_match,
                 percent,
@@ -117,7 +129,8 @@ pub fn main() !void {
                 endless,
             };
             var state = State.no_match;
-            var array = std.BoundedArray(u8, 0x1000).init(0) catch unreachable;
+            var string = try util.PoolString.create();
+            errdefer string.destroy();
 
             while (reader.readByte()) |c| {
                 switch (state) {
@@ -132,17 +145,17 @@ pub fn main() !void {
                     .ready => {
                         switch (c) {
                             ' ', ',', '\n', '\t', ':', ';', '(', ')', '!', '?', '[', ']', '{', '}' => {
-                                if (std.mem.eql(u8, array.constSlice(), "run")) {
+                                if (std.mem.eql(u8, string.array.slice(), "run")) {
                                     state = .endless;
-                                    try array.append(c);
+                                    try string.array.append(c);
                                 } else {
                                     break;
                                 }
                             },
-                            else => try array.append(c),
+                            else => try string.array.append(c),
                         }
                     },
-                    .endless => try array.append(c),
+                    .endless => try string.array.append(c),
                 }
             } else |err| switch (err) {
                 error.EndOfStream => {},
@@ -150,10 +163,15 @@ pub fn main() !void {
             }
 
             // Strip trailing period
-            if (array.len > 0 and array.get(array.len - 1) == '.') {
-                _ = array.pop();
+            if (string.array.len > 0 and string.array.get(string.array.len - 1) == '.') {
+                _ = string.array.pop();
             }
-            return if (array.len == 0) null else array;
+            if (string.array.len == 0) {
+                string.destroy();
+                return null;
+            } else {
+                return string;
+            }
         }
     }) catch |err| switch (err) {
         error.AuthenticationFailed => |e| return e,

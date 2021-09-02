@@ -26,7 +26,7 @@ pub fn reload() void {
 }
 
 pub const Ask = struct {
-    text: std.BoundedArray(u8, 0x1000),
+    text: *util.PoolString,
     channel_id: zCord.Snowflake(.channel),
     source_msg_id: zCord.Snowflake(.message),
 };
@@ -52,8 +52,7 @@ pub fn create(allocator: *std.mem.Allocator, zCord_client: *zCord.Client, ziglib
 
 pub fn askHandler(self: *WorkContext) void {
     while (true) {
-        // Force copy
-        var ask = self.ask_mailbox.get();
+        const ask = self.ask_mailbox.get();
         self.askOne(ask) catch |err| {
             std.debug.print("{s}\n", .{err});
         };
@@ -62,7 +61,9 @@ pub fn askHandler(self: *WorkContext) void {
 
 pub fn askOne(self: *WorkContext, ask: Ask) !void {
     const swh = util.Swhash(16);
-    const ask_text = ask.text.constSlice();
+    const ask_text = ask.text.array.slice();
+    defer ask.text.destroy();
+
     switch (swh.match(ask_text)) {
         swh.case("ping") => {
             _ = try self.sendDiscordMessage(.{

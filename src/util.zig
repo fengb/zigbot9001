@@ -89,9 +89,11 @@ pub fn Mailbox(comptime T: type) type {
             }
         }
 
-        pub fn putOverwrite(self: *Self, value: T) void {
+        pub fn putOverwrite(self: *Self, value: T) ?T {
+            const existing = self.value;
             self.value = value;
             self.cond.impl.signal();
+            return existing;
         }
     };
 }
@@ -117,3 +119,29 @@ pub fn mapSigaction(comptime T: type) void {
         );
     }
 }
+
+pub const PoolString = struct {
+    next: ?*PoolString,
+    array: std.BoundedArray(u8, 0x1000),
+
+    var root: ?*PoolString = null;
+    var scratch: [16]PoolString = undefined;
+
+    pub fn create() !*PoolString {
+        const node = root orelse return error.OutOfMemory;
+        node.array.len = 0;
+        root = node.next;
+        return node;
+    }
+
+    pub fn destroy(self: *PoolString) void {
+        self.next = root;
+        root = self;
+    }
+
+    pub fn prefill() void {
+        for (scratch) |*string| {
+            destroy(string);
+        }
+    }
+};
