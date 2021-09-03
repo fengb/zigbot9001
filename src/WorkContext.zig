@@ -15,7 +15,7 @@ prepared_anal: analBuddy.PrepareResult,
 
 timer: std.time.Timer,
 
-ask_mailbox: util.Mailbox(Ask),
+ask_mailbox: util.Mailbox(Ask, 16),
 ask_thread: std.Thread,
 
 // TODO move this to instance variable somehow?

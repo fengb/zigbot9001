@@ -46,11 +46,14 @@ fn ReturnOf(comptime func: anytype) type {
     return @typeInfo(@TypeOf(func)).Fn.return_type.?;
 }
 
-pub fn Mailbox(comptime T: type) type {
+pub fn Mailbox(comptime T: type, size: usize) type {
     return struct {
         const Self = @This();
+        const Queue = std.fifo.LinearFifo(T, .{ .Static = size });
 
-        value: ?T = null,
+        queue: Queue = Queue.init(),
+        qutex: std.Thread.Mutex = .{},
+
         cond: std.Thread.Condition = .{},
         mutex: std.Thread.Mutex = .{},
 
@@ -58,25 +61,32 @@ pub fn Mailbox(comptime T: type) type {
             const held = self.mutex.acquire();
             defer held.release();
 
-            if (self.value) |value| {
-                self.value = null;
-                return value;
-            } else {
+            const ready_value = blk: {
+                const queue_held = self.qutex.acquire();
+                defer queue_held.release();
+                break :blk self.queue.readItem();
+            };
+
+            return ready_value orelse {
                 self.cond.wait(&self.mutex);
 
-                defer self.value = null;
-                return self.value.?;
-            }
+                const queue_held = self.qutex.acquire();
+                defer queue_held.release();
+                return self.queue.readItem().?;
+            };
         }
 
         pub fn getWithTimeout(self: *Self, timeout_ns: u64) ?T {
             const held = self.mutex.acquire();
             defer held.release();
 
-            if (self.value) |value| {
-                self.value = null;
-                return value;
-            } else {
+            const ready_value = blk: {
+                const queue_held = self.qutex.acquire();
+                defer queue_held.release();
+                break :blk self.queue.readItem();
+            };
+
+            return ready_value orelse {
                 const future_ns = std.time.nanoTimestamp() + timeout_ns;
                 var future: std.os.timespec = undefined;
                 future.tv_sec = @intCast(@TypeOf(future.tv_sec), @divFloor(future_ns, std.time.ns_per_s));
@@ -84,14 +94,20 @@ pub fn Mailbox(comptime T: type) type {
 
                 const rc = std.os.system.pthread_cond_timedwait(&self.cond.impl.cond, &self.mutex.impl.pthread_mutex, &future);
                 std.debug.assert(rc == 0 or rc == std.os.system.ETIMEDOUT);
-                defer self.value = null;
-                return self.value;
-            }
+                return self.queue.readItem();
+            };
         }
 
         pub fn putOverwrite(self: *Self, value: T) ?T {
-            const existing = self.value;
-            self.value = value;
+            const queue_held = self.qutex.acquire();
+            defer queue_held.release();
+
+            const existing = if (self.queue.ensureUnusedCapacity(1))
+                null
+            else |err| switch (err) {
+                error.OutOfMemory => self.queue.readItem(),
+            };
+            self.queue.writeItemAssumeCapacity(value);
             self.cond.impl.signal();
             return existing;
         }
