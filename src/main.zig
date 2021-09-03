@@ -84,8 +84,12 @@ pub fn main() !void {
             var channel_id: ?zCord.Snowflake(.channel) = null;
             var source_msg_id: ?zCord.Snowflake(.message) = null;
 
-            // If "channel_id" was guaranteed to exist before "content", we wouldn't need this :(
+            // If `channel_id` was guaranteed to exist before `content`, we wouldn't need to build this list :(
             var base: ?*util.PoolString = null;
+
+            // This is needed to maintain insertion order. If we only used base, it would be in reverse order.
+            var tail: *util.PoolString = undefined;
+
             defer while (base) |text| {
                 base = text.next;
                 text.destroy();
@@ -103,8 +107,14 @@ pub fn main() !void {
                 .content => |e_content| {
                     const reader = try e_content.stringReader();
                     while (try findAsk(reader)) |text| {
-                        text.next = base;
-                        base = text;
+                        text.next = null;
+                        if (base == null) {
+                            base = text;
+                            tail = text;
+                        } else {
+                            tail.next = text;
+                            tail = text;
+                        }
                     }
                     _ = try e_content.finalizeToken();
                 },
