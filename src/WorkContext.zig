@@ -12,17 +12,17 @@ zCord_client: *zCord.Client,
 github_auth_token: ?[]const u8,
 prng: std.rand.DefaultPrng,
 prepared_anal: analBuddy.PrepareResult,
+last_reload: usize,
 
 timer: std.time.Timer,
 
 ask_mailbox: util.Mailbox(Ask, 16),
 ask_thread: std.Thread,
 
-// TODO move this to instance variable somehow?
-var awaiting_enema = false;
+var reload_counter: usize = 0;
 
 pub fn reload() void {
-    awaiting_enema = true;
+    reload_counter += 1;
 }
 
 pub const Ask = struct {
@@ -41,6 +41,7 @@ pub fn create(allocator: *std.mem.Allocator, zCord_client: *zCord.Client, ziglib
     result.prng = std.rand.DefaultPrng.init(@bitCast(u64, std.time.timestamp()));
     result.prepared_anal = try analBuddy.prepare(allocator, ziglib);
     errdefer analBuddy.dispose(&result.prepared_anal);
+    result.last_reload = reload_counter;
 
     result.timer = try std.time.Timer.start();
 
@@ -334,9 +335,9 @@ pub fn askOne(self: *WorkContext, ask: Ask) !void {
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
 
-        if (awaiting_enema) {
+        if (self.last_reload != reload_counter) {
             try analBuddy.reloadCached(&arena, self.prepared_anal.store.allocator, &self.prepared_anal);
-            awaiting_enema = false;
+            self.last_reload = reload_counter;
         }
         if (try analBuddy.analyse(&arena, &self.prepared_anal, ask_text)) |match| {
             _ = try self.sendDiscordMessage(.{
@@ -346,7 +347,7 @@ pub fn askOne(self: *WorkContext, ask: Ask) !void {
                 .description = &.{std.mem.trim(u8, match, " \t\r\n")},
                 .color = .red,
             });
-        } else {}
+        }
     }
 }
 
