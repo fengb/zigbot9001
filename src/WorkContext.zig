@@ -8,7 +8,7 @@ const util = @import("util.zig");
 const WorkContext = @This();
 
 allocator: *std.mem.Allocator,
-zCord_client: *zCord.Client,
+zcord_client: *zCord.Client,
 github_auth_token: ?[]const u8,
 prng: std.rand.DefaultPrng,
 prepared_anal: analBuddy.PrepareResult,
@@ -31,12 +31,12 @@ pub const Ask = struct {
     source_msg_id: zCord.Snowflake(.message),
 };
 
-pub fn create(allocator: *std.mem.Allocator, zCord_client: *zCord.Client, ziglib: []const u8, github_auth_token: ?[]const u8) !*WorkContext {
+pub fn create(allocator: *std.mem.Allocator, zcord_client: *zCord.Client, ziglib: []const u8, github_auth_token: ?[]const u8) !*WorkContext {
     const result = try allocator.create(WorkContext);
     errdefer allocator.destroy(result);
 
     result.allocator = allocator;
-    result.zCord_client = zCord_client;
+    result.zcord_client = zcord_client;
     result.github_auth_token = github_auth_token;
     result.prng = std.rand.DefaultPrng.init(@bitCast(u64, std.time.timestamp()));
     result.prepared_anal = try analBuddy.prepare(allocator, ziglib);
@@ -465,7 +465,7 @@ pub fn sendDiscordMessage(self: WorkContext, args: struct {
         .image = image,
     };
 
-    var req = try self.zCord_client.sendRequest(self.allocator, method, path, .{
+    var req = try self.zcord_client.sendRequest(self.allocator, method, path, .{
         .content = "",
         .tts = false,
         .embed = embed,
