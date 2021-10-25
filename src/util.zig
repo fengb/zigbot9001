@@ -117,7 +117,7 @@ pub fn Mailbox(comptime T: type, size: usize) type {
 pub fn mapSigaction(comptime T: type) void {
     inline for (std.meta.declarations(T)) |decl| {
         std.os.sigaction(
-            @field(std.os, decl.name),
+            @field(std.os.SIG, decl.name),
             &std.os.Sigaction{
                 .handler = .{
                     .handler = struct {

@@ -40,7 +40,7 @@ pub fn create(allocator: *std.mem.Allocator, zcord_client: *zCord.Client, ziglib
     result.github_auth_token = github_auth_token;
     result.prng = std.rand.DefaultPrng.init(@bitCast(u64, std.time.timestamp()));
     result.prepared_anal = try analBuddy.prepare(allocator, ziglib);
-    errdefer analBuddy.dispose(&result.prepared_anal);
+    errdefer result.prepared_anal.deinit();
     result.last_reload = reload_counter;
 
     result.timer = try std.time.Timer.start();
@@ -91,7 +91,7 @@ pub fn askOne(self: *WorkContext, ask: Ask) !void {
             return;
         },
         swh.case("status") => {
-            const rusage = std.os.getrusage(std.os.RUSAGE_SELF);
+            const rusage = std.os.getrusage(std.os.system.RUSAGE_SELF);
             const cpu_sec = (rusage.utime.tv_sec + rusage.stime.tv_sec) * 1000;
             const cpu_us = @divFloor(rusage.utime.tv_usec + rusage.stime.tv_usec, 1000);
 
@@ -336,10 +336,10 @@ pub fn askOne(self: *WorkContext, ask: Ask) !void {
         defer arena.deinit();
 
         if (self.last_reload != reload_counter) {
-            try analBuddy.reloadCached(&arena, self.prepared_anal.store.allocator, &self.prepared_anal);
+            try self.prepared_anal.reloadCached(&arena);
             self.last_reload = reload_counter;
         }
-        if (try analBuddy.analyse(&arena, &self.prepared_anal, ask_text)) |match| {
+        if (try self.prepared_anal.analyse(&arena, ask_text)) |match| {
             _ = try self.sendDiscordMessage(.{
                 .channel_id = ask.channel_id,
                 .target_msg_id = .{ .reply = ask.source_msg_id },
@@ -545,20 +545,20 @@ pub fn requestRun(self: WorkContext, src: [][]const u8, stdout_buf: []u8, stderr
         .stderr = stderr_buf[0..0],
     };
 
-    while (try root.objectMatch(enum { stdout, stderr })) |match| switch (match) {
-        .stdout => |e_stdout| {
-            result.stdout = e_stdout.stringBuffer(stdout_buf) catch |err| switch (err) {
+    while (try root.objectMatch(enum { stdout, stderr })) |match| switch (match.key) {
+        .stdout => {
+            result.stdout = match.value.stringBuffer(stdout_buf) catch |err| switch (err) {
                 error.StreamTooLong => stdout_buf,
                 else => |e| return e,
             };
-            _ = try e_stdout.finalizeToken();
+            _ = try match.value.finalizeToken();
         },
-        .stderr => |e_stderr| {
-            result.stderr = e_stderr.stringBuffer(stderr_buf) catch |err| switch (err) {
+        .stderr => {
+            result.stderr = match.value.stringBuffer(stderr_buf) catch |err| switch (err) {
                 error.StreamTooLong => stderr_buf,
                 else => |e| return e,
             };
-            _ = try e_stderr.finalizeToken();
+            _ = try match.value.finalizeToken();
         },
     };
     return result;

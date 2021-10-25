@@ -1,5 +1,5 @@
-github fengb analysis-buddy master src/main.zig 63910a703c51383f31804f76292fde119d312d2e
-github fengb zCord master src/main.zig 50a50f28b69f1bde7e59d37f6a5575a55d43b725
-pkg default truemedian hzzp 0.1.5
-pkg default truemedian wz 0.0.3
-github alexnask iguanaTLS master src/main.zig 0d39a361639ad5469f8e4dcdaea35446bbe54b48
+github fengb analysis-buddy master src/main.zig 763217ff94faf08169c662aecc84f667885502b6
+github fengb zCord master src/main.zig a6b20307f0eacef75a93eeba2f84a52689117365
+pkg default truemedian hzzp 0.1.7
+pkg default truemedian wz 0.0.5
+github marler8997 iguanaTLS master src/main.zig c1106fa6ecac1d51e8148cd47a8a4b99bb307af8

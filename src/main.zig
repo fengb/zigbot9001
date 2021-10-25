@@ -32,11 +32,11 @@ const RestartHandler = struct {
 
 pub fn main() !void {
     util.mapSigaction(struct {
-        pub fn SIGWINCH() void {
+        pub fn WINCH() void {
             WorkContext.reload();
         }
 
-        pub fn SIGUSR1() void {
+        pub fn USR1() void {
             const err = std.os.execveZ(
                 std.os.argv[0],
                 @ptrCast([*:null]?[*:0]u8, std.os.argv.ptr),
@@ -95,17 +95,15 @@ pub fn main() !void {
                 text.destroy();
             };
 
-            while (try data.objectMatch(enum { id, content, channel_id })) |match| switch (match) {
-                .id => |e_id| {
-                    source_msg_id = try zCord.Snowflake(.message).consumeJsonElement(e_id);
-                    _ = try e_id.finalizeToken();
+            while (try data.objectMatch(enum { id, content, channel_id })) |match| switch (match.key) {
+                .id => {
+                    source_msg_id = try zCord.Snowflake(.message).consumeJsonElement(match.value);
                 },
-                .channel_id => |e_channel_id| {
-                    channel_id = try zCord.Snowflake(.channel).consumeJsonElement(e_channel_id);
-                    _ = try e_channel_id.finalizeToken();
+                .channel_id => {
+                    channel_id = try zCord.Snowflake(.channel).consumeJsonElement(match.value);
                 },
-                .content => |e_content| {
-                    const reader = try e_content.stringReader();
+                .content => {
+                    const reader = try match.value.stringReader();
                     while (try findAsk(reader)) |text| {
                         text.next = null;
                         if (base == null) {
@@ -116,7 +114,7 @@ pub fn main() !void {
                             tail = text;
                         }
                     }
-                    _ = try e_content.finalizeToken();
+                    _ = try match.value.finalizeToken();
                 },
             };
 
