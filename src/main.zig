@@ -64,7 +64,7 @@ pub fn main() !void {
             .status = .online,
             .activities = &.{
                 .{
-                    .type = .Game,
+                    .type = .Watching,
                     .name = "examples: %%666 or %%std.ArrayList",
                 },
             },
