@@ -121,7 +121,7 @@ pub fn mapSigaction(comptime T: type) void {
             &std.os.Sigaction{
                 .handler = .{ .handler = @field(T, decl.name) },
                 .mask = std.os.empty_sigset,
-                .flags = 0,
+                .flags = std.os.SA.NODEFER | std.os.SA.RESETHAND,
             },
             null,
         );
