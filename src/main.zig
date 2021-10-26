@@ -32,11 +32,13 @@ const RestartHandler = struct {
 
 pub fn main() !void {
     util.mapSigaction(struct {
-        pub fn WINCH() void {
+        pub fn WINCH(signum: c_int) callconv(.C) void {
+            _ = signum;
             WorkContext.reload();
         }
 
-        pub fn USR1() void {
+        pub fn USR1(signum: c_int) callconv(.C) void {
+            _ = signum;
             const err = std.os.execveZ(
                 std.os.argv[0],
                 @ptrCast([*:null]?[*:0]u8, std.os.argv.ptr),

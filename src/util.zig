@@ -119,15 +119,7 @@ pub fn mapSigaction(comptime T: type) void {
         std.os.sigaction(
             @field(std.os.SIG, decl.name),
             &std.os.Sigaction{
-                .handler = .{
-                    .handler = struct {
-                        fn handler(signum: c_int) callconv(.C) void {
-                            _ = signum;
-                            const func = @field(T, decl.name);
-                            func();
-                        }
-                    }.handler,
-                },
+                .handler = .{ .handler = @field(T, decl.name) },
                 .mask = std.os.empty_sigset,
                 .flags = 0,
             },
