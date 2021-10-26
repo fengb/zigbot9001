@@ -66,30 +66,6 @@ pub fn askOne(self: *WorkContext, ask: Ask) !void {
     defer ask.text.destroy();
 
     switch (swh.match(ask_text)) {
-        swh.case("ping") => {
-            _ = try self.sendDiscordMessage(.{
-                .channel_id = ask.channel_id,
-                .target_msg_id = .{ .reply = ask.source_msg_id },
-                .title = "pong",
-                .description = &.{
-                    \\```
-                    \\          ,;;;!!!!!;;.
-                    \\        :!!!!!!!!!!!!!!;
-                    \\      :!!!!!!!!!!!!!!!!!;
-                    \\     ;!!!!!!!!!!!!!!!!!!!;
-                    \\    ;!!!!!!!!!!!!!!!!!!!!!
-                    \\    ;!!!!!!!!!!!!!!!!!!!!'
-                    \\    ;!!!!!!!!!!!!!!!!!!!'
-                    \\     :!!!!!!!!!!!!!!!!'
-                    \\      ,!!!!!!!!!!!!!''
-                    \\   ,;!!!''''''''''
-                    \\ .!!!!'
-                    \\!!!!`
-                    \\```
-                },
-            });
-            return;
-        },
         swh.case("status") => {
             const rusage = std.os.getrusage(std.os.system.RUSAGE_SELF);
             const cpu_sec = (rusage.utime.tv_sec + rusage.stime.tv_sec) * 1000;
@@ -219,7 +195,16 @@ pub fn askOne(self: *WorkContext, ask: Ask) !void {
                 .target_msg_id = .{ .reply = ask.source_msg_id },
                 .title = "I promised I would dab and say “bruh” — _andrewrk_",
                 .description = &.{"https://vimeo.com/492676992"},
-                .image = "https://i.vimeocdn.com/video/1018725604.jpg?mw=700&mh=1243&q=70",
+                .image = "https://user-images.githubusercontent.com/219422/138796179-983cfd79-646e-4293-b46b-412ef0485101.jpg",
+            });
+            return;
+        },
+        swh.case("stage1") => {
+            _ = try self.sendDiscordMessage(.{
+                .channel_id = ask.channel_id,
+                .target_msg_id = .{ .reply = ask.source_msg_id },
+                .title = "",
+                .image = "https://user-images.githubusercontent.com/219422/138794956-0f355d35-f99a-462c-a363-8b58f4e38c0e.png",
             });
             return;
         },
