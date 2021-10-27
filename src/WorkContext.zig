@@ -212,7 +212,7 @@ pub fn askOne(self: *WorkContext, ask: Ask) !void {
     }
 
     if (std.mem.startsWith(u8, ask_text, "run")) {
-        const run = self.parseRun(ask_text) catch |e| switch (e) {
+        const run = parseRun(ask_text) catch |e| switch (e) {
             error.InvalidInput => {
                 _ = try self.sendDiscordMessage(.{
                     .channel_id = ask.channel_id,
@@ -346,13 +346,23 @@ fn wrapString(buffer: []u8, wrapper: []const u8) []u8 {
     return frame;
 }
 
-fn parseRun(self: WorkContext, ask: []const u8) ![]const u8 {
-    _ = self;
-    // we impliment a rudimentary tokenizer
+fn parseRun(ask: []const u8) ![]const u8 {
+    const langs = std.ComptimeStringMap(void, .{
+        .{ "c", {} },
+        .{ "go", {} },
+        .{ "rs", {} },
+        .{ "rust", {} },
+        .{ "batman", {} },
+        .{ "typescript", {} },
+        .{ "ts", {} },
+        .{ "kotlin", {} },
+    });
+
+    // we implement a rudimentary tokenizer
     var b_num: u8 = 0;
     var start_idx: usize = 0;
     var end_idx: usize = 0;
-    var state: enum { start, before_text_lang, text } = .start;
+    var state: enum { start, maybe_text_lang, text } = .start;
     for (ask) |c, i| {
         // skip run
         if (i < 4) continue;
@@ -360,31 +370,39 @@ fn parseRun(self: WorkContext, ask: []const u8) ![]const u8 {
             .start => switch (c) {
                 '`' => {
                     b_num += 1;
-                    if (b_num == 2) {
+                    if (b_num == 3) {
                         b_num = 0;
-                        state = .before_text_lang;
+                        state = .maybe_text_lang;
+                        start_idx = i + 1;
                     }
                 },
                 ' ', '\t', '\n' => continue,
                 else => return error.InvalidInput,
             },
-            .before_text_lang => {
+            .maybe_text_lang => {
                 switch (c) {
                     'a'...'z',
                     'A'...'Z',
-                    '`',
                     => continue,
                     else => {
                         state = .text;
-                        start_idx = i;
+                        const maybe_lang = ask[start_idx..i];
+                        if (langs.has(maybe_lang)) {
+                            // Skip this "token" since it's the highlight language
+                            start_idx = i + 1;
+                        }
+
+                        if (c == '`') {
+                            b_num += 1;
+                        }
                     },
                 }
             },
             .text => switch (c) {
                 '`' => {
                     b_num += 1;
-                    if (b_num == 2) {
-                        end_idx = i - 1;
+                    if (b_num == 3) {
+                        end_idx = i - 2;
                         break;
                     }
                 },
@@ -394,7 +412,20 @@ fn parseRun(self: WorkContext, ask: []const u8) ![]const u8 {
     }
     if (start_idx == 0) return error.InvalidInput;
     if (end_idx == 0) return error.InvalidInput;
+    if (start_idx >= end_idx) return error.InvalidInput;
     return ask[start_idx..end_idx];
+}
+
+test "parseRun" {
+    try std.testing.expectEqualStrings("never", try parseRun("run ```never```"));
+    try std.testing.expectEqualStrings("gonna", try parseRun("run ```gonna```"));
+    try std.testing.expectEqualStrings("give", try parseRun("run ```give```"));
+    try std.testing.expectEqualStrings("you", try parseRun("run ```you```"));
+    try std.testing.expectEqualStrings("up", try parseRun("run ```up```"));
+
+    try std.testing.expectEqualStrings("nail", try parseRun("run ```rust nail```"));
+    try std.testing.expectEqualStrings("away", try parseRun("run ```go away```"));
+    try std.testing.expectEqualStrings("insert pun", try parseRun("run ```typescript insert pun```"));
 }
 
 fn maybeGithubIssue(self: WorkContext, ask: []const u8) !?GithubIssue {

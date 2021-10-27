@@ -21,6 +21,7 @@ pub fn build(b: *std.build.Builder) void {
 
     var main_tests = b.addTest("src/main.zig");
     main_tests.setBuildMode(mode);
+    deps.pkgs.addAllTo(main_tests);
     const test_step = b.step("test", "Run library tests");
     test_step.dependOn(&main_tests.step);
 

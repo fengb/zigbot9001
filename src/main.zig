@@ -4,6 +4,11 @@ const zCord = @import("zCord");
 const WorkContext = @import("WorkContext.zig");
 const util = @import("util.zig");
 
+test {
+    _ = WorkContext;
+    _ = util;
+}
+
 const auto_restart = true;
 //const auto_restart = std.builtin.mode == .Debug;
 
