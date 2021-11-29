@@ -208,14 +208,6 @@ pub fn askOne(self: *WorkContext, ask: Ask) !void {
             });
             return;
         },
-        swh.case("xkcd") => {
-            _ = try self.sendDiscordMessage(.{
-                .channel_id = ask.channel_id,
-                .target_msg_id = .{.reply = ask.source_msg_id},
-                .title = "The wisdom of xkcd",
-                .image ="
-            })
-        }
         else => {},
     }
 
@@ -295,7 +287,6 @@ pub fn askOne(self: *WorkContext, ask: Ask) !void {
         });
         return;
     }
-
     if (try self.maybeGithubIssue(ask_text)) |issue| {
         const is_pull_request = std.mem.indexOf(u8, issue.html_url.constSlice(), "/pull/") != null;
         const label = if (is_pull_request) "pull" else "issue";
@@ -324,6 +315,23 @@ pub fn askOne(self: *WorkContext, ask: Ask) !void {
             },
             .color = if (is_pull_request) HexColor.blue else HexColor.green,
         });
+    } 
+    else if(try self.maybeXKCD(ask_text)) |comic| {
+        var url_buf : [0x100]u8 = undefined;
+        _ = try self.sendDiscordMessage(.{
+                .channel_id = ask.channel_id,
+                .target_msg_id = .{ .reply = ask.source_msg_id },
+                .title = comic.title.constSlice(),
+                .description = &.{
+                "[",
+                comic.alt.constSlice(),
+                "](",
+                try std.fmt.bufPrint(&url_buf, "https://xkcd.com/{d}", .{comic.num}),
+                ")",
+            },
+                .image = comic.img.constSlice(),
+                .color = .blue,
+            });
     } else {
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
@@ -447,6 +455,16 @@ fn maybeGithubIssue(self: WorkContext, ask: []const u8) !?GithubIssue {
     if (slash > pound) return null;
 
     return try self.requestGithubIssue(ask[0..pound], ask[pound + 1 ..]);
+}
+
+fn maybeXKCD(self: WorkContext, ask: []const u8) !?XKCDComic {
+    const commandName = "xkcd";
+    std.log.debug("{s}", .{ask[0..4]});
+    if(std.mem.eql(u8, commandName[0..], ask[0..4])) {
+        var xkcdNumber : u32 = try std.fmt.parseInt(u32, ask[5..], 10);
+        return try self.requestXKCDComic(xkcdNumber);
+    }
+    return null;
 }
 
 const EmbedField = struct { name: []const u8, value: []const u8 };
@@ -587,7 +605,7 @@ pub fn requestRun(self: WorkContext, src: [][]const u8, stdout_buf: []u8, stderr
     };
     return result;
 }
-
+const XKCDComic = struct { num: u32, title: std.BoundedArray(u8, 0x100),img : std.BoundedArray(u8, 0x100), alt: std.BoundedArray(u8, 0x100) };
 const GithubIssue = struct { number: u32, title: std.BoundedArray(u8, 0x100), html_url: std.BoundedArray(u8, 0x100) };
 const RunResult = struct {
     stdout: []u8,
@@ -633,4 +651,28 @@ pub fn requestGithubIssue(self: WorkContext, repo: []const u8, issue: []const u8
     var stream = zCord.json.stream(req.client.reader());
     const root = try stream.root();
     return try zCord.json.path.match(root, GithubIssue);
+}
+
+pub fn requestXKCDComic(self: WorkContext, number : u32) !XKCDComic {
+    var path: [0x100]u8 = undefined;
+    var req = try zCord.https.Request.init(.{
+        .allocator = self.allocator,
+        .host = "xkcd.com",
+        .method = .GET,
+        .path = try std.fmt.bufPrint(&path, "/{d}/info.0.json", .{number}),
+    });
+    defer req.deinit();
+    try req.client.writeHeaderValue("Accept", "application/json");
+    try req.client.writeHeaderValue("Content-Type", "application/json");
+
+    const resp_code = try req.sendEmptyBody();
+    if (resp_code.group() != .success) {
+        std.debug.print("{} - {s}\n", .{ @enumToInt(resp_code), @tagName(resp_code) });
+        return error.UnknownRequestError;
+    }
+    try req.completeHeaders();
+
+    var stream = zCord.json.stream(req.client.reader());
+    const root = try stream.root();
+    return try zCord.json.path.match(root, XKCDComic);
 }
