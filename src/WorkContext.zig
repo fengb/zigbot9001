@@ -208,6 +208,14 @@ pub fn askOne(self: *WorkContext, ask: Ask) !void {
             });
             return;
         },
+        swh.case("xkcd") => {
+            _ = try self.sendDiscordMessage(.{
+                .channel_id = ask.channel_id,
+                .target_msg_id = .{.reply = ask.source_msg_id},
+                .title = "The wisdom of xkcd",
+                .image ="
+            })
+        }
         else => {},
     }
 
