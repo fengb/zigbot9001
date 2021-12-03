@@ -61,9 +61,12 @@ pub fn main() !void {
     util.PoolString.prefill();
 
     var auth_buf: [0x100]u8 = undefined;
-    const client = try zCord.Client.create(.{
-        .allocator = &gpa.allocator,
+    const client = zCord.Client{
         .auth_token = try std.fmt.bufPrint(&auth_buf, "Bot {s}", .{std.os.getenv("DISCORD_AUTH") orelse return error.AuthNotFound}),
+    };
+
+    var gateway = try client.startGateway(.{
+        .allocator = &gpa.allocator,
         .intents = .{ .guild_messages = true, .direct_messages = true },
         .presence = .{
             .status = .online,
@@ -75,7 +78,7 @@ pub fn main() !void {
             },
         },
     });
-    defer client.destroy();
+    defer gateway.destroy();
 
     const work = try WorkContext.create(
         &gpa.allocator,
@@ -84,9 +87,20 @@ pub fn main() !void {
         std.os.getenv("GITHUB_AUTH"),
     );
 
-    client.ws(work, struct {
-        pub fn handleDispatch(ctx: *WorkContext, name: []const u8, data: zCord.JsonElement) !void {
-            if (!std.mem.eql(u8, name, "MESSAGE_CREATE")) return;
+    while (true) {
+        const event = try gateway.recvEvent();
+        defer event.deinit();
+        processEvent(event, work) catch |err| {
+            std.debug.print("{}\n", .{err});
+        };
+    }
+}
+
+pub fn processEvent(event: zCord.Gateway.Event, ctx: *WorkContext) !void {
+    switch (event.payload) {
+        .heartbeat_ack => {},
+        .dispatch => |dispatch| {
+            if (!std.mem.eql(u8, dispatch.name.constSlice(), "MESSAGE_CREATE")) return;
 
             var channel_id: ?zCord.Snowflake(.channel) = null;
             var source_msg_id: ?zCord.Snowflake(.message) = null;
@@ -102,7 +116,7 @@ pub fn main() !void {
                 text.destroy();
             };
 
-            while (try data.objectMatch(enum { id, content, channel_id })) |match| switch (match.key) {
+            while (try dispatch.data.objectMatch(enum { id, content, channel_id })) |match| switch (match.key) {
                 .id => {
                     source_msg_id = try zCord.Snowflake(.message).consumeJsonElement(match.value);
                 },
@@ -134,62 +148,59 @@ pub fn main() !void {
                     }
                 }
             }
-        }
+        },
+    }
+}
 
-        fn findAsk(reader: anytype) !?*util.PoolString {
-            const State = enum {
-                no_match,
-                percent,
-                ready,
-                endless,
-            };
-            var state = State.no_match;
-            var string = try util.PoolString.create();
-            errdefer string.destroy();
-
-            while (reader.readByte()) |c| {
-                switch (state) {
-                    .no_match => {
-                        if (c == '%') {
-                            state = .percent;
-                        }
-                    },
-                    .percent => {
-                        state = if (c == '%') .ready else .no_match;
-                    },
-                    .ready => {
-                        switch (c) {
-                            ' ', ',', '\n', '\t', ':', ';', '(', ')', '!', '?', '[', ']', '{', '}' => {
-                                if (std.mem.eql(u8, string.array.slice(), "run")) {
-                                    state = .endless;
-                                    try string.array.append(c);
-                                } else {
-                                    break;
-                                }
-                            },
-                            else => try string.array.append(c),
-                        }
-                    },
-                    .endless => try string.array.append(c),
-                }
-            } else |err| switch (err) {
-                error.EndOfStream => {},
-                else => |e| return e,
-            }
-
-            // Strip trailing period
-            if (string.array.len > 0 and string.array.get(string.array.len - 1) == '.') {
-                _ = string.array.pop();
-            }
-            if (string.array.len == 0) {
-                string.destroy();
-                return null;
-            } else {
-                return string;
-            }
-        }
-    }) catch |err| switch (err) {
-        error.AuthenticationFailed => |e| return e,
-        else => @panic(@errorName(err)),
+fn findAsk(reader: anytype) !?*util.PoolString {
+    const State = enum {
+        no_match,
+        percent,
+        ready,
+        endless,
     };
+    var state = State.no_match;
+    var string = try util.PoolString.create();
+    errdefer string.destroy();
+
+    while (reader.readByte()) |c| {
+        switch (state) {
+            .no_match => {
+                if (c == '%') {
+                    state = .percent;
+                }
+            },
+            .percent => {
+                state = if (c == '%') .ready else .no_match;
+            },
+            .ready => {
+                switch (c) {
+                    ' ', ',', '\n', '\t', ':', ';', '(', ')', '!', '?', '[', ']', '{', '}' => {
+                        if (std.mem.eql(u8, string.array.slice(), "run")) {
+                            state = .endless;
+                            try string.array.append(c);
+                        } else {
+                            break;
+                        }
+                    },
+                    else => try string.array.append(c),
+                }
+            },
+            .endless => try string.array.append(c),
+        }
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => |e| return e,
+    }
+
+    // Strip trailing period
+    if (string.array.len > 0 and string.array.get(string.array.len - 1) == '.') {
+        _ = string.array.pop();
+    }
+    if (string.array.len == 0) {
+        string.destroy();
+        return null;
+    } else {
+        return string;
+    }
 }

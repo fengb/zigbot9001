@@ -58,31 +58,31 @@ pub fn Mailbox(comptime T: type, size: usize) type {
         mutex: std.Thread.Mutex = .{},
 
         pub fn get(self: *Self) T {
-            const held = self.mutex.acquire();
-            defer held.release();
+            self.mutex.lock();
+            defer self.mutex.unlock();
 
             const ready_value = blk: {
-                const queue_held = self.qutex.acquire();
-                defer queue_held.release();
+                self.qutex.lock();
+                defer self.qutex.unlock();
                 break :blk self.queue.readItem();
             };
 
             return ready_value orelse {
                 self.cond.wait(&self.mutex);
 
-                const queue_held = self.qutex.acquire();
-                defer queue_held.release();
+                self.qutex.lock();
+                defer self.qutex.unlock();
                 return self.queue.readItem().?;
             };
         }
 
         pub fn getWithTimeout(self: *Self, timeout_ns: u64) ?T {
-            const held = self.mutex.acquire();
-            defer held.release();
+            self.mutex.lock();
+            defer self.mutex.unlock();
 
             const ready_value = blk: {
-                const queue_held = self.qutex.acquire();
-                defer queue_held.release();
+                self.qutex.lock();
+                defer self.qutex.unlock();
                 break :blk self.queue.readItem();
             };
 
@@ -99,8 +99,8 @@ pub fn Mailbox(comptime T: type, size: usize) type {
         }
 
         pub fn putOverwrite(self: *Self, value: T) ?T {
-            const queue_held = self.qutex.acquire();
-            defer queue_held.release();
+            self.qutex.lock();
+            defer self.qutex.unlock();
 
             const existing = if (self.queue.ensureUnusedCapacity(1))
                 null

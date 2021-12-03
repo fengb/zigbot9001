@@ -8,7 +8,7 @@ const util = @import("util.zig");
 const WorkContext = @This();
 
 allocator: *std.mem.Allocator,
-zcord_client: *zCord.Client,
+zcord_client: zCord.Client,
 github_auth_token: ?[]const u8,
 prng: std.rand.DefaultPrng,
 prepared_anal: analBuddy.PrepareResult,
@@ -31,7 +31,7 @@ pub const Ask = struct {
     source_msg_id: zCord.Snowflake(.message),
 };
 
-pub fn create(allocator: *std.mem.Allocator, zcord_client: *zCord.Client, ziglib: []const u8, github_auth_token: ?[]const u8) !*WorkContext {
+pub fn create(allocator: *std.mem.Allocator, zcord_client: zCord.Client, ziglib: []const u8, github_auth_token: ?[]const u8) !*WorkContext {
     const result = try allocator.create(WorkContext);
     errdefer allocator.destroy(result);
 
@@ -67,7 +67,9 @@ pub fn askOne(self: *WorkContext, ask: Ask) !void {
 
     switch (swh.match(ask_text)) {
         swh.case("status") => {
-            const rusage = std.os.getrusage(std.os.system.RUSAGE_SELF);
+            const RUSAGE_SELF = 0;
+            const rusage = std.os.getrusage(RUSAGE_SELF);
+            //const rusage = std.os.getrusage(std.os.system.RUSAGE_SELF);
             const cpu_sec = (rusage.utime.tv_sec + rusage.stime.tv_sec) * 1000;
             const cpu_us = @divFloor(rusage.utime.tv_usec + rusage.stime.tv_usec, 1000);
 
