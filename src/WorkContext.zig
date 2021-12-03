@@ -315,23 +315,22 @@ pub fn askOne(self: *WorkContext, ask: Ask) !void {
             },
             .color = if (is_pull_request) HexColor.blue else HexColor.green,
         });
-    } 
-    else if(try self.maybeXKCD(ask_text)) |comic| {
-        var url_buf : [0x100]u8 = undefined;
+    } else if (try self.maybeXKCD(ask_text)) |comic| {
+        var url_buf: [0x100]u8 = undefined;
         _ = try self.sendDiscordMessage(.{
-                .channel_id = ask.channel_id,
-                .target_msg_id = .{ .reply = ask.source_msg_id },
-                .title = comic.title.constSlice(),
-                .description = &.{
+            .channel_id = ask.channel_id,
+            .target_msg_id = .{ .reply = ask.source_msg_id },
+            .title = comic.title.constSlice(),
+            .description = &.{
                 "[",
                 comic.alt.constSlice(),
                 "](",
                 try std.fmt.bufPrint(&url_buf, "https://xkcd.com/{d}", .{comic.num}),
                 ")",
             },
-                .image = comic.img.constSlice(),
-                .color = .blue,
-            });
+            .image = comic.img.constSlice(),
+            .color = .blue,
+        });
     } else {
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
@@ -460,8 +459,8 @@ fn maybeGithubIssue(self: WorkContext, ask: []const u8) !?GithubIssue {
 fn maybeXKCD(self: WorkContext, ask: []const u8) !?XKCDComic {
     const commandName = "xkcd";
     std.log.debug("{s}", .{ask[0..4]});
-    if(std.mem.eql(u8, commandName[0..], ask[0..4])) {
-        var xkcdNumber : u32 = try std.fmt.parseInt(u32, ask[5..], 10);
+    if (std.mem.eql(u8, commandName[0..], ask[0..4])) {
+        var xkcdNumber: u32 = try std.fmt.parseInt(u32, ask[5..], 10);
         return try self.requestXKCDComic(xkcdNumber);
     }
     return null;
@@ -605,7 +604,7 @@ pub fn requestRun(self: WorkContext, src: [][]const u8, stdout_buf: []u8, stderr
     };
     return result;
 }
-const XKCDComic = struct { num: u32, title: std.BoundedArray(u8, 0x100),img : std.BoundedArray(u8, 0x100), alt: std.BoundedArray(u8, 0x100) };
+const XKCDComic = struct { num: u32, title: std.BoundedArray(u8, 0x100), img: std.BoundedArray(u8, 0x100), alt: std.BoundedArray(u8, 0x100) };
 const GithubIssue = struct { number: u32, title: std.BoundedArray(u8, 0x100), html_url: std.BoundedArray(u8, 0x100) };
 const RunResult = struct {
     stdout: []u8,
@@ -653,7 +652,7 @@ pub fn requestGithubIssue(self: WorkContext, repo: []const u8, issue: []const u8
     return try zCord.json.path.match(root, GithubIssue);
 }
 
-pub fn requestXKCDComic(self: WorkContext, number : u32) !XKCDComic {
+pub fn requestXKCDComic(self: WorkContext, number: u32) !XKCDComic {
     var path: [0x100]u8 = undefined;
     var req = try zCord.https.Request.init(.{
         .allocator = self.allocator,
