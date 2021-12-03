@@ -457,8 +457,9 @@ fn maybeGithubIssue(self: WorkContext, ask: []const u8) !?GithubIssue {
 }
 
 fn maybeXKCD(self: WorkContext, ask: []const u8) !?XKCDComic {
+    if (ask.len < 6) return null;
     const commandName = "xkcd";
-    std.log.debug("{s}", .{ask[0..4]});
+
     if (std.mem.eql(u8, commandName[0..], ask[0..4])) {
         var xkcdNumber: u32 = try std.fmt.parseInt(u32, ask[5..], 10);
         return try self.requestXKCDComic(xkcdNumber);
