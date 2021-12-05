@@ -97,58 +97,53 @@ pub fn main() !void {
 }
 
 pub fn processEvent(event: zCord.Gateway.Event, ctx: *WorkContext) !void {
-    switch (event.payload) {
-        .heartbeat_ack => {},
-        .dispatch => |dispatch| {
-            if (!std.mem.eql(u8, dispatch.name.constSlice(), "MESSAGE_CREATE")) return;
+    if (event.name != .message_create) return;
 
-            var channel_id: ?zCord.Snowflake(.channel) = null;
-            var source_msg_id: ?zCord.Snowflake(.message) = null;
+    var channel_id: ?zCord.Snowflake(.channel) = null;
+    var source_msg_id: ?zCord.Snowflake(.message) = null;
 
-            // If `channel_id` was guaranteed to exist before `content`, we wouldn't need to build this list :(
-            var base: ?*util.PoolString = null;
+    // If `channel_id` was guaranteed to exist before `content`, we wouldn't need to build this list :(
+    var base: ?*util.PoolString = null;
 
-            // This is needed to maintain insertion order. If we only used base, it would be in reverse order.
-            var tail: *util.PoolString = undefined;
+    // This is needed to maintain insertion order. If we only used base, it would be in reverse order.
+    var tail: *util.PoolString = undefined;
 
-            defer while (base) |text| {
-                base = text.next;
-                text.destroy();
-            };
+    defer while (base) |text| {
+        base = text.next;
+        text.destroy();
+    };
 
-            while (try dispatch.data.objectMatch(enum { id, content, channel_id })) |match| switch (match.key) {
-                .id => {
-                    source_msg_id = try zCord.Snowflake(.message).consumeJsonElement(match.value);
-                },
-                .channel_id => {
-                    channel_id = try zCord.Snowflake(.channel).consumeJsonElement(match.value);
-                },
-                .content => {
-                    const reader = try match.value.stringReader();
-                    while (try findAsk(reader)) |text| {
-                        text.next = null;
-                        if (base == null) {
-                            base = text;
-                            tail = text;
-                        } else {
-                            tail.next = text;
-                            tail = text;
-                        }
-                    }
-                    _ = try match.value.finalizeToken();
-                },
-            };
-
-            if (channel_id != null and source_msg_id != null) {
-                while (base) |text| {
-                    base = text.next;
-                    std.debug.print(">> %%{s}\n", .{text.array.slice()});
-                    if (ctx.ask_mailbox.putOverwrite(.{ .channel_id = channel_id.?, .source_msg_id = source_msg_id.?, .text = text })) |existing| {
-                        existing.text.destroy();
-                    }
+    while (try event.data.objectMatch(enum { id, content, channel_id })) |match| switch (match.key) {
+        .id => {
+            source_msg_id = try zCord.Snowflake(.message).consumeJsonElement(match.value);
+        },
+        .channel_id => {
+            channel_id = try zCord.Snowflake(.channel).consumeJsonElement(match.value);
+        },
+        .content => {
+            const reader = try match.value.stringReader();
+            while (try findAsk(reader)) |text| {
+                text.next = null;
+                if (base == null) {
+                    base = text;
+                    tail = text;
+                } else {
+                    tail.next = text;
+                    tail = text;
                 }
             }
+            _ = try match.value.finalizeToken();
         },
+    };
+
+    if (channel_id != null and source_msg_id != null) {
+        while (base) |text| {
+            base = text.next;
+            std.debug.print(">> %%{s}\n", .{text.array.slice()});
+            if (ctx.ask_mailbox.putOverwrite(.{ .channel_id = channel_id.?, .source_msg_id = source_msg_id.?, .text = text })) |existing| {
+                existing.text.destroy();
+            }
+        }
     }
 }
 

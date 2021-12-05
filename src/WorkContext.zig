@@ -652,7 +652,7 @@ pub fn requestGithubIssue(self: WorkContext, repo: []const u8, issue: []const u8
 
     var stream = zCord.json.stream(req.client.reader());
     const root = try stream.root();
-    return try zCord.json.path.match(root, GithubIssue);
+    return try root.pathMatch(GithubIssue);
 }
 
 pub fn requestXKCDComic(self: WorkContext, number: u32) !XKCDComic {
@@ -676,5 +676,5 @@ pub fn requestXKCDComic(self: WorkContext, number: u32) !XKCDComic {
 
     var stream = zCord.json.stream(req.client.reader());
     const root = try stream.root();
-    return try zCord.json.path.match(root, XKCDComic);
+    return try root.pathMatch(XKCDComic);
 }
