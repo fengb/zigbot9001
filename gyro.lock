@@ -1,5 +1,6 @@
-github fengb analysis-buddy master src/main.zig 763217ff94faf08169c662aecc84f667885502b6
-github fengb zCord master src/main.zig 8e960c1b06b347f72a12391713b8bd2e297bc3c2
-pkg default truemedian hzzp 0.1.7
-github fengb wz fix-mask src/main.zig d0f9221c1a4987d0ac6ceb07e813a4131fe76937
-github marler8997 iguanaTLS master src/main.zig d56e9fcd268e15bd44a65333af11d126e7ce3319
+pkg astrolabe.pm truemedian hzzp 0.1.7
+git https://github.com/fengb/analysis-buddy.git master src/main.zig 40f0d732430d5691448c3b6ab4d9b2998bab0f8f
+git https://github.com/fengb/zCord.git master src/main.zig cabf64fb476db622327e0500616688231b583ed5
+git https://github.com/truemedian/wz.git master src/main.zig 2e607de7084a4e1e6010653c5e207e93dba970b0
+git https://github.com/marler8997/iguanaTLS.git master src/main.zig 47169e207864e0cfbace3c92a31a0cf8d938d1b2
+git https://github.com/fengb/zasp.git master src/main.zig 5d25c98c0d17d322b26b4354ee7c7643bf61d9c3

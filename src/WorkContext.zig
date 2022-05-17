@@ -7,7 +7,7 @@ const util = @import("util.zig");
 
 const WorkContext = @This();
 
-allocator: *std.mem.Allocator,
+allocator: std.mem.Allocator,
 zcord_client: zCord.Client,
 github_auth_token: ?[]const u8,
 prng: std.rand.DefaultPrng,
@@ -31,7 +31,7 @@ pub const Ask = struct {
     source_msg_id: zCord.Snowflake(.message),
 };
 
-pub fn create(allocator: *std.mem.Allocator, zcord_client: zCord.Client, ziglib: []const u8, github_auth_token: ?[]const u8) !*WorkContext {
+pub fn create(allocator: std.mem.Allocator, zcord_client: zCord.Client, ziglib: []const u8, github_auth_token: ?[]const u8) !*WorkContext {
     const result = try allocator.create(WorkContext);
     errdefer allocator.destroy(result);
 
