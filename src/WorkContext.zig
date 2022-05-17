@@ -463,7 +463,14 @@ fn maybeXKCD(self: WorkContext, ask: []const u8) !?XKCDComic {
     const commandName = "xkcd";
 
     if (std.mem.eql(u8, commandName[0..], ask[0..4])) {
-        var xkcdNumber: u32 = try std.fmt.parseInt(u32, ask[5..], 10);
+        var xkcdNumber: u32 = 0;
+        xkcdNumber = std.fmt.parseInt(u32, ask[5..], 10) catch {
+            // If parsing XKCD fails, we recurr to suppose is text to search
+            return try self.requestRelevantXKCDComic(ask[5..]);
+        };
+        if (xkcdNumber == 404) { // XKCD 404 is the 404 page of XKCD =)
+            xkcdNumber += 1; // I was gonna put andrew dabbing, but, too much work
+        }
         return try self.requestXKCDComic(xkcdNumber);
     }
     return null;
@@ -607,7 +614,17 @@ pub fn requestRun(self: WorkContext, src: [][]const u8, stdout_buf: []u8, stderr
     };
     return result;
 }
+const XKCDComicError = error{not_found};
 const XKCDComic = struct { num: u32, title: std.BoundedArray(u8, 0x200), img: std.BoundedArray(u8, 0x200), alt: std.BoundedArray(u8, 0x200) };
+const XKCDComicSearch = struct {
+    number: u32,
+    title: std.BoundedArray(u8, 0x200),
+    image: std.BoundedArray(u8, 0x200),
+    titletext: std.BoundedArray(u8, 0x200),
+    pub fn toXkcdComic(self: XKCDComicSearch) XKCDComic {
+        return XKCDComic{ .num = self.number, .title = self.title, .img = self.image, .alt = self.titletext };
+    }
+};
 const GithubIssue = struct { number: u32, title: std.BoundedArray(u8, 0x100), html_url: std.BoundedArray(u8, 0x100) };
 const RunResult = struct {
     stdout: []u8,
@@ -677,4 +694,39 @@ pub fn requestXKCDComic(self: WorkContext, number: u32) !XKCDComic {
     var stream = zCord.json.stream(req.client.reader());
     const root = try stream.root();
     return try root.pathMatch(XKCDComic);
+}
+pub fn requestRelevantXKCDComic(self: WorkContext, name: []const u8) !XKCDComic {
+    var req = try zCord.https.Request.init(.{
+        .allocator = self.allocator,
+        .host = "relevant-xkcd-backend.herokuapp.com",
+        .method = .POST,
+        .path = "/search",
+    });
+    defer req.deinit();
+    try req.client.writeHeaderValue("Accept", "*/*");
+    try req.client.writeHeaderValue("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+    var resp_code = try req.sendPrint("search={s}", .{name});
+
+    if (resp_code.group() != .success) {
+        std.debug.print("{} - {s}\n", .{ @enumToInt(resp_code), @tagName(resp_code) });
+        return error.UnknownRequestError;
+    }
+    try req.completeHeaders();
+
+    var stream = zCord.json.stream(req.client.reader());
+    const root = try stream.root();
+    var relevant: XKCDComic = undefined;
+    var match = try root.objectMatchOne("results");
+    if (match) |obj| {
+        var temp = try obj.value.arrayNext();
+        if (temp) |next_element| {
+            var searchResult: XKCDComicSearch = try next_element.pathMatch(XKCDComicSearch);
+            relevant = searchResult.toXkcdComic();
+        } else {
+            return XKCDComicError.not_found;
+        }
+    } else {
+        return XKCDComicError.not_found;
+    }
+    return relevant;
 }
