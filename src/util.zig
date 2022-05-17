@@ -108,15 +108,15 @@ pub fn Mailbox(comptime T: type, size: usize) type {
                 error.OutOfMemory => self.queue.readItem(),
             };
             self.queue.writeItemAssumeCapacity(value);
-            self.cond.impl.signal();
+            self.cond.signal();
             return existing;
         }
     };
 }
 
-pub fn mapSigaction(comptime T: type) void {
-    inline for (std.meta.declarations(T)) |decl| {
-        std.os.sigaction(
+pub fn mapSigaction(comptime T: type) !void {
+    inline for (comptime std.meta.declarations(T)) |decl| {
+        try std.os.sigaction(
             @field(std.os.SIG, decl.name),
             &std.os.Sigaction{
                 .handler = .{ .handler = @field(T, decl.name) },

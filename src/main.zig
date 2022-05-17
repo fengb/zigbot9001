@@ -36,7 +36,7 @@ const RestartHandler = struct {
 };
 
 pub fn main() !void {
-    util.mapSigaction(struct {
+    try util.mapSigaction(struct {
         pub fn WINCH(signum: c_int) callconv(.C) void {
             _ = signum;
             WorkContext.reload();
@@ -66,7 +66,7 @@ pub fn main() !void {
     };
 
     var gateway = try client.startGateway(.{
-        .allocator = &gpa.allocator,
+        .allocator = gpa.allocator(),
         .intents = .{ .guild_messages = true, .direct_messages = true },
         .presence = .{
             .status = .online,
@@ -81,7 +81,7 @@ pub fn main() !void {
     defer gateway.destroy();
 
     const work = try WorkContext.create(
-        &gpa.allocator,
+        gpa.allocator(),
         client,
         std.os.getenv("ZIGLIB") orelse return error.ZiglibNotFound,
         std.os.getenv("GITHUB_AUTH"),

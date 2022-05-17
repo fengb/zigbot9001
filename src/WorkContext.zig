@@ -7,7 +7,7 @@ const util = @import("util.zig");
 
 const WorkContext = @This();
 
-allocator: *std.mem.Allocator,
+allocator: std.mem.Allocator,
 zcord_client: zCord.Client,
 github_auth_token: ?[]const u8,
 prng: std.rand.DefaultPrng,
@@ -31,7 +31,7 @@ pub const Ask = struct {
     source_msg_id: zCord.Snowflake(.message),
 };
 
-pub fn create(allocator: *std.mem.Allocator, zcord_client: zCord.Client, ziglib: []const u8, github_auth_token: ?[]const u8) !*WorkContext {
+pub fn create(allocator: std.mem.Allocator, zcord_client: zCord.Client, ziglib: []const u8, github_auth_token: ?[]const u8) !*WorkContext {
     const result = try allocator.create(WorkContext);
     errdefer allocator.destroy(result);
 
@@ -615,12 +615,12 @@ pub fn requestRun(self: WorkContext, src: [][]const u8, stdout_buf: []u8, stderr
     return result;
 }
 const XKCDComicError = error{not_found};
-const XKCDComic = struct { num: u32, title: std.BoundedArray(u8, 0x100), img: std.BoundedArray(u8, 0x100), alt: std.BoundedArray(u8, 0x100) };
+const XKCDComic = struct { num: u32, title: std.BoundedArray(u8, 0x200), img: std.BoundedArray(u8, 0x200), alt: std.BoundedArray(u8, 0x200) };
 const XKCDComicSearch = struct {
     number: u32,
-    title: std.BoundedArray(u8, 0x100),
-    image: std.BoundedArray(u8, 0x100),
-    titletext: std.BoundedArray(u8, 0x100),
+    title: std.BoundedArray(u8, 0x200),
+    image: std.BoundedArray(u8, 0x200),
+    titletext: std.BoundedArray(u8, 0x200),
     pub fn toXkcdComic(self: XKCDComicSearch) XKCDComic {
         return XKCDComic{ .num = self.number, .title = self.title, .img = self.image, .alt = self.titletext };
     }
