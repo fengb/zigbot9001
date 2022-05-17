@@ -607,7 +607,7 @@ pub fn requestRun(self: WorkContext, src: [][]const u8, stdout_buf: []u8, stderr
     };
     return result;
 }
-const XKCDComic = struct { num: u32, title: std.BoundedArray(u8, 0x100), img: std.BoundedArray(u8, 0x100), alt: std.BoundedArray(u8, 0x100) };
+const XKCDComic = struct { num: u32, title: std.BoundedArray(u8, 0x200), img: std.BoundedArray(u8, 0x200), alt: std.BoundedArray(u8, 0x200) };
 const GithubIssue = struct { number: u32, title: std.BoundedArray(u8, 0x100), html_url: std.BoundedArray(u8, 0x100) };
 const RunResult = struct {
     stdout: []u8,
