@@ -58,7 +58,7 @@ pub fn main() !void {
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
-    util.PoolString.prefill();
+    util.PoolString.prefill(16, struct {});
 
     var auth_buf: [0x100]u8 = undefined;
     const client = zCord.Client{

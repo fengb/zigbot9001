@@ -133,7 +133,6 @@ pub const PoolString = struct {
     array: std.BoundedArray(u8, 0x1000),
 
     var root: ?*PoolString = null;
-    var scratch: [16]PoolString = undefined;
 
     pub fn create() !*PoolString {
         const node = root orelse return error.OutOfMemory;
@@ -147,8 +146,12 @@ pub const PoolString = struct {
         root = self;
     }
 
-    pub fn prefill() void {
-        for (scratch) |*string| {
+    pub fn prefill(comptime size: usize, comptime cache_bust: type) void {
+        _ = cache_bust;
+        const cache = struct {
+            var pool: [size]PoolString = undefined;
+        };
+        for (cache.pool) |*string| {
             destroy(string);
         }
     }
