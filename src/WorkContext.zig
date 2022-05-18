@@ -466,7 +466,7 @@ fn maybeXKCD(self: WorkContext, ask: []const u8) !?XKCDComic {
         var xkcdNumber: u32 = 0;
         xkcdNumber = std.fmt.parseInt(u32, ask[5..], 10) catch {
             // If parsing XKCD fails, we recurr to suppose is text to search
-            return try self.requestRelevantXKCDComic(ask[5..]);
+            return try self.searchXKCDComic(ask[5..]);
         };
         if (xkcdNumber == 404) { // XKCD 404 is the 404 page of XKCD =)
             xkcdNumber += 1; // I was gonna put andrew dabbing, but, too much work
@@ -616,15 +616,6 @@ pub fn requestRun(self: WorkContext, src: [][]const u8, stdout_buf: []u8, stderr
 }
 const XKCDComicError = error{not_found};
 const XKCDComic = struct { num: u32, title: std.BoundedArray(u8, 0x200), img: std.BoundedArray(u8, 0x200), alt: std.BoundedArray(u8, 0x200) };
-const XKCDComicSearch = struct {
-    number: u32,
-    title: std.BoundedArray(u8, 0x200),
-    image: std.BoundedArray(u8, 0x200),
-    titletext: std.BoundedArray(u8, 0x200),
-    pub fn toXkcdComic(self: XKCDComicSearch) XKCDComic {
-        return XKCDComic{ .num = self.number, .title = self.title, .img = self.image, .alt = self.titletext };
-    }
-};
 const GithubIssue = struct { number: u32, title: std.BoundedArray(u8, 0x100), html_url: std.BoundedArray(u8, 0x100) };
 const RunResult = struct {
     stdout: []u8,
@@ -695,7 +686,8 @@ pub fn requestXKCDComic(self: WorkContext, number: u32) !XKCDComic {
     const root = try stream.root();
     return try root.pathMatch(XKCDComic);
 }
-pub fn requestRelevantXKCDComic(self: WorkContext, name: []const u8) !XKCDComic {
+
+pub fn searchXKCDComic(self: WorkContext, term: []const u8) !XKCDComic {
     var req = try zCord.https.Request.init(.{
         .allocator = self.allocator,
         .host = "relevant-xkcd-backend.herokuapp.com",
@@ -705,7 +697,7 @@ pub fn requestRelevantXKCDComic(self: WorkContext, name: []const u8) !XKCDComic 
     defer req.deinit();
     try req.client.writeHeaderValue("Accept", "*/*");
     try req.client.writeHeaderValue("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
-    var resp_code = try req.sendPrint("search={s}", .{name});
+    var resp_code = try req.sendPrint("search={s}", .{term});
 
     if (resp_code.group() != .success) {
         std.debug.print("{} - {s}\n", .{ @enumToInt(resp_code), @tagName(resp_code) });
@@ -715,18 +707,17 @@ pub fn requestRelevantXKCDComic(self: WorkContext, name: []const u8) !XKCDComic 
 
     var stream = zCord.json.stream(req.client.reader());
     const root = try stream.root();
-    var relevant: XKCDComic = undefined;
-    var match = try root.objectMatchOne("results");
-    if (match) |obj| {
-        var temp = try obj.value.arrayNext();
-        if (temp) |next_element| {
-            var searchResult: XKCDComicSearch = try next_element.pathMatch(XKCDComicSearch);
-            relevant = searchResult.toXkcdComic();
-        } else {
-            return XKCDComicError.not_found;
+    if (try root.objectMatchOne("results")) |res| {
+        if (try res.value.arrayNext()) |element| {
+            var relevant: XKCDComic = undefined;
+            while (try element.objectMatch(enum { number, title, image, titletext })) |match| switch (match.key) {
+                .number => relevant.num = try match.value.number(u32),
+                .title => relevant.title = try match.value.stringBoundedArray(0x200),
+                .image => relevant.img = try match.value.stringBoundedArray(0x200),
+                .titletext => relevant.alt = try match.value.stringBoundedArray(0x200),
+            };
+            return relevant;
         }
-    } else {
-        return XKCDComicError.not_found;
     }
-    return relevant;
+    return XKCDComicError.not_found;
 }
