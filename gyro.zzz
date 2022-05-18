@@ -1,13 +1,9 @@
 deps:
   analysis-buddy:
-    src:
-      github:
-        user: fengb
-        repo: analysis-buddy
-        ref: master
+    git:
+      url: "https://github.com/fengb/analysis-buddy.git"
+      ref: master
   zCord:
-    src:
-      github:
-        user: fengb
-        repo: zCord
-        ref: master
+    git:
+      url: "https://github.com/fengb/zCord.git"
+      ref: master
