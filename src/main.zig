@@ -67,7 +67,7 @@ pub fn main() !void {
 
     var gateway = try client.startGateway(.{
         .allocator = gpa.allocator(),
-        .intents = .{ .guild_messages = true, .direct_messages = true },
+        .intents = .{ .guild_messages = true, .direct_messages = true, .message_content = true },
         .presence = .{
             .status = .online,
             .activities = &.{
